@@ -133,7 +133,7 @@ jobs:
           Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $portableZip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Olcbox-windows-amd64
           path: |
@@ -193,7 +193,7 @@ jobs:
           cp desktopApp/build/compose/binaries/main-release/dmg/*.dmg "dist/Olcbox-${OLCBOX_VERSION}-macos-${{ matrix.arch }}.dmg"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Olcbox-macos-${{ matrix.arch }}-dmg
           path: olcbox/dist/Olcbox-*-macos-${{ matrix.arch }}.dmg
@@ -255,7 +255,7 @@ jobs:
           cp desktopApp/build/compose/binaries/main-release/appimage/*.AppImage "dist/Olcbox-${OLCBOX_VERSION}-linux-amd64.AppImage"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Olcbox-linux-amd64-appimage
           path: olcbox/dist/Olcbox-*-linux-amd64.AppImage
@@ -356,7 +356,7 @@ jobs:
           cp androidApp/build/outputs/apk/release/*.apk "dist/Olcbox-${OLCBOX_VERSION}-android-release.apk"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Olcbox-android-apk
           path: olcbox/dist/Olcbox-*-android-release.apk
