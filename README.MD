@@ -137,3 +137,5 @@ Linux privilege override:
 OLCBOX_LINUX_PRIVILEGE=sudo ./gradlew :desktopApp:run
 OLCBOX_LINUX_PRIVILEGE=pkexec ./gradlew :desktopApp:run
 ```
+
+ 
