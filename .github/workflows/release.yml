@@ -24,12 +24,12 @@ jobs:
 
     steps:
       - name: Checkout olcbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: olcbox
 
       - name: Checkout olcrtc
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: openlibrecommunity/olcrtc
           ref: master
@@ -156,12 +156,12 @@ jobs:
 
     steps:
       - name: Checkout olcbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: olcbox
 
       - name: Checkout olcrtc
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: openlibrecommunity/olcrtc
           ref: master
@@ -205,12 +205,12 @@ jobs:
 
     steps:
       - name: Checkout olcbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: olcbox
 
       - name: Checkout olcrtc
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: openlibrecommunity/olcrtc
           ref: master
@@ -274,12 +274,12 @@ jobs:
 
     steps:
       - name: Checkout olcbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: olcbox
 
       - name: Checkout olcrtc
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: openlibrecommunity/olcrtc
           ref: master
@@ -375,7 +375,7 @@ jobs:
 
     steps:
       - name: Checkout olcbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download release assets
         uses: actions/download-artifact@v4
