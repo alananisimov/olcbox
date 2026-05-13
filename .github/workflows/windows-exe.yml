@@ -299,7 +299,7 @@ jobs:
           cache-dependency-path: olcrtc/go.sum
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
         run: |
