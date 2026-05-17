@@ -6,7 +6,11 @@ import org.olcbox.app.desktop.DesktopOs
 import org.olcbox.app.desktop.DesktopPaths
 
 internal interface DesktopProxyController {
-    suspend fun enable(pacUrl: String)
+    suspend fun enable(
+        pacUrl: String,
+        socksHost: String = PacServer.LOCAL_SOCKS_HOST,
+        socksPort: Int = PacServer.LOCAL_SOCKS_PORT
+    )
     suspend fun restore()
 
     companion object {
@@ -22,7 +26,7 @@ internal interface DesktopProxyController {
 }
 
 internal class UnsupportedProxyController : DesktopProxyController {
-    override suspend fun enable(pacUrl: String) {
+    override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
         error("System proxy mode supports macOS and Windows")
     }
 
@@ -38,7 +42,7 @@ internal data class MacOsAutoProxyState(
 internal class MacOsProxyController : DesktopProxyController {
     private var backup: List<MacOsAutoProxyState>? = null
 
-    override suspend fun enable(pacUrl: String) {
+    override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
         val services = enabledNetworkServices()
         backup = services.map { service ->
             readAutoProxyState(service)
@@ -112,9 +116,9 @@ internal data class WindowsProxyState(
 internal class WindowsProxyController : DesktopProxyController {
     private var backup: WindowsProxyState? = null
 
-    override suspend fun enable(pacUrl: String) {
+    override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
         backup = readState()
-        enableCommands(pacUrl).forEach { runCommand(it) }
+        enableCommands(socksHost, socksPort).forEach { runCommand(it) }
         refreshProxySettings()
     }
 
@@ -157,10 +161,12 @@ internal class WindowsProxyController : DesktopProxyController {
     companion object {
         private const val REGISTRY_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
 
-        fun enableCommands(pacUrl: String): List<List<String>> {
+        fun enableCommands(socksHost: String, socksPort: Int): List<List<String>> {
             return listOf(
-                setDwordCommand("ProxyEnable", "0"),
-                setStringCommand("AutoConfigURL", pacUrl)
+                setDwordCommand("ProxyEnable", "1"),
+                setStringCommand("ProxyServer", "socks=$socksHost:$socksPort"),
+                setStringCommand("ProxyOverride", "<local>;localhost;127.*"),
+                listOf("reg", "delete", REGISTRY_KEY, "/v", "AutoConfigURL", "/f")
             )
         }
 

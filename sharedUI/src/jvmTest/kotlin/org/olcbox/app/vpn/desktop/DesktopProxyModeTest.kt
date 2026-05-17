@@ -252,12 +252,18 @@ class DesktopProxyModeTest {
     }
 
     @Test
-    fun windowsProxyCommandsBackupShapeIsRestorable() {
-        val enable = WindowsProxyController.enableCommands("http://127.0.0.1:10809/proxy.pac")
+    fun windowsProxyCommandsUseDirectSocksSystemProxy() {
+        val enable = WindowsProxyController.enableCommands("127.0.0.1", 10808)
         assertEquals("reg", enable.first().first())
+        assertContains(enable.flatten(), "ProxyEnable")
+        assertContains(enable.flatten(), "ProxyServer")
+        assertContains(enable.flatten(), "socks=127.0.0.1:10808")
         assertContains(enable.flatten(), "AutoConfigURL")
-        assertContains(enable.flatten(), "http://127.0.0.1:10809/proxy.pac")
+        assertContains(enable.flatten(), "delete")
+    }
 
+    @Test
+    fun windowsProxyCommandsBackupShapeIsRestorable() {
         val restore = WindowsProxyController.restoreCommands(
             WindowsProxyState(
                 proxyEnable = "0x1",

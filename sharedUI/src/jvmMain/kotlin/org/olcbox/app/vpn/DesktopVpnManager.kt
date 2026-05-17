@@ -198,7 +198,11 @@ class DesktopVpnManager private constructor(
                 startTunLogReader(tunProcess ?: error("hev-socks5-tunnel process is missing"))
             } else {
                 pacServer.start(socksSettings.host, socksSettings.port)
-                proxyController.enable(pacServer.url)
+                proxyController.enable(
+                    pacUrl = pacServer.url,
+                    socksHost = socksSettings.host,
+                    socksPort = socksSettings.port
+                )
 
                 if (requestGeneration != generation) {
                     throw CancellationException("Desktop start superseded")
