@@ -23,6 +23,7 @@ import org.olcbox.app.desktop.DesktopOs
 import org.olcbox.app.desktop.DesktopPaths
 import org.olcbox.app.vpn.desktop.DesktopNativeAssets
 import org.olcbox.app.vpn.desktop.DesktopProxyController
+import org.olcbox.app.vpn.desktop.HttpConnectProxy
 import org.olcbox.app.vpn.desktop.LinuxPrivilege
 import org.olcbox.app.vpn.desktop.LinuxTunController
 import org.olcbox.app.vpn.desktop.OlcRtcCommand
@@ -38,13 +39,15 @@ import java.util.concurrent.TimeUnit
 class DesktopVpnManager private constructor(
     private val locationsRepository: LocationsRepository,
     private val proxyController: DesktopProxyController = DesktopProxyController.current(),
-    private val pacServer: PacServer = PacServer()
+    private val pacServer: PacServer = PacServer(),
+    private val httpConnectProxy: HttpConnectProxy = HttpConnectProxy()
 ) : VpnManager {
 
     constructor(locationsRepository: LocationsRepository) : this(
         locationsRepository = locationsRepository,
         proxyController = DesktopProxyController.current(),
-        pacServer = PacServer()
+        pacServer = PacServer(),
+        httpConnectProxy = HttpConnectProxy()
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -129,12 +132,14 @@ class DesktopVpnManager private constructor(
         ).normalized()
         _socksProxySettings.value = settings
         pacServer.updateSocksTarget(settings.host, settings.port)
+        httpConnectProxy.updateSocksTarget(settings.host, settings.port)
     }
 
     fun updateSocksProxySettings(settings: DesktopSocksProxySettings) {
         val normalized = settings.normalized()
         _socksProxySettings.value = normalized
         pacServer.updateSocksTarget(normalized.host, normalized.port)
+        httpConnectProxy.updateSocksTarget(normalized.host, normalized.port)
     }
 
     fun close() {
@@ -198,10 +203,15 @@ class DesktopVpnManager private constructor(
                 startTunLogReader(tunProcess ?: error("hev-socks5-tunnel process is missing"))
             } else {
                 pacServer.start(socksSettings.host, socksSettings.port)
+                if (DesktopPaths.os == DesktopOs.Windows) {
+                    httpConnectProxy.start(socksSettings.host, socksSettings.port)
+                }
                 proxyController.enable(
                     pacUrl = pacServer.url,
                     socksHost = socksSettings.host,
-                    socksPort = socksSettings.port
+                    socksPort = socksSettings.port,
+                    httpProxyHost = HttpConnectProxy.HTTP_PROXY_HOST,
+                    httpProxyPort = httpConnectProxy.boundPort
                 )
 
                 if (requestGeneration != generation) {
@@ -238,6 +248,7 @@ class DesktopVpnManager private constructor(
             }
 
             pacServer.stop()
+            httpConnectProxy.stop()
             stopProcess(process)
             process = null
 
@@ -313,6 +324,7 @@ class DesktopVpnManager private constructor(
         }
 
         pacServer.stop()
+        httpConnectProxy.stop()
 
         watchdogJob?.cancel()
         watchdogJob = null

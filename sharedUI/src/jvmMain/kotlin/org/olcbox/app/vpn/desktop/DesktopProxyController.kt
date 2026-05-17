@@ -9,7 +9,9 @@ internal interface DesktopProxyController {
     suspend fun enable(
         pacUrl: String,
         socksHost: String = PacServer.LOCAL_SOCKS_HOST,
-        socksPort: Int = PacServer.LOCAL_SOCKS_PORT
+        socksPort: Int = PacServer.LOCAL_SOCKS_PORT,
+        httpProxyHost: String = HttpConnectProxy.HTTP_PROXY_HOST,
+        httpProxyPort: Int = HttpConnectProxy.HTTP_PROXY_PORT
     )
     suspend fun restore()
 
@@ -26,7 +28,13 @@ internal interface DesktopProxyController {
 }
 
 internal class UnsupportedProxyController : DesktopProxyController {
-    override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
+    override suspend fun enable(
+        pacUrl: String,
+        socksHost: String,
+        socksPort: Int,
+        httpProxyHost: String,
+        httpProxyPort: Int
+    ) {
         error("System proxy mode supports macOS and Windows")
     }
 
@@ -42,7 +50,13 @@ internal data class MacOsAutoProxyState(
 internal class MacOsProxyController : DesktopProxyController {
     private var backup: List<MacOsAutoProxyState>? = null
 
-    override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
+    override suspend fun enable(
+        pacUrl: String,
+        socksHost: String,
+        socksPort: Int,
+        httpProxyHost: String,
+        httpProxyPort: Int
+    ) {
         val services = enabledNetworkServices()
         backup = services.map { service ->
             readAutoProxyState(service)
@@ -116,9 +130,21 @@ internal data class WindowsProxyState(
 internal class WindowsProxyController : DesktopProxyController {
     private var backup: WindowsProxyState? = null
 
-    override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
+    override suspend fun enable(
+        pacUrl: String,
+        socksHost: String,
+        socksPort: Int,
+        httpProxyHost: String,
+        httpProxyPort: Int
+    ) {
         backup = readState()
-        enableCommands(socksHost, socksPort, removeAutoConfigUrl = backup?.autoConfigUrl != null)
+        enableCommands(
+            socksHost = socksHost,
+            socksPort = socksPort,
+            httpProxyHost = httpProxyHost,
+            httpProxyPort = httpProxyPort,
+            removeAutoConfigUrl = backup?.autoConfigUrl != null
+        )
             .forEach { runCommand(it) }
         refreshProxySettings()
     }
@@ -165,6 +191,8 @@ internal class WindowsProxyController : DesktopProxyController {
         fun enableCommands(
             socksHost: String,
             socksPort: Int,
+            httpProxyHost: String = HttpConnectProxy.HTTP_PROXY_HOST,
+            httpProxyPort: Int = HttpConnectProxy.HTTP_PROXY_PORT,
             removeAutoConfigUrl: Boolean = true
         ): List<List<String>> {
             return buildList {
@@ -172,7 +200,10 @@ internal class WindowsProxyController : DesktopProxyController {
                     setDwordCommand("ProxyEnable", "1")
                 )
                 add(
-                    setStringCommand("ProxyServer", "socks=$socksHost:$socksPort")
+                    setStringCommand(
+                        "ProxyServer",
+                        "http=$httpProxyHost:$httpProxyPort;https=$httpProxyHost:$httpProxyPort;socks=$socksHost:$socksPort"
+                    )
                 )
                 add(
                     setStringCommand("ProxyOverride", "<local>;localhost;127.*")

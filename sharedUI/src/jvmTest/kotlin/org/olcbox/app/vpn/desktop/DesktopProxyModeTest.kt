@@ -253,12 +253,12 @@ class DesktopProxyModeTest {
     }
 
     @Test
-    fun windowsProxyCommandsUseDirectSocksSystemProxy() {
+    fun windowsProxyCommandsUseHttpAndSocksSystemProxy() {
         val enable = WindowsProxyController.enableCommands("127.0.0.1", 10808)
         assertEquals("reg", enable.first().first())
         assertContains(enable.flatten(), "ProxyEnable")
         assertContains(enable.flatten(), "ProxyServer")
-        assertContains(enable.flatten(), "socks=127.0.0.1:10808")
+        assertContains(enable.flatten(), "http=127.0.0.1:10810;https=127.0.0.1:10810;socks=127.0.0.1:10808")
         assertContains(enable.flatten(), "AutoConfigURL")
         assertContains(enable.flatten(), "delete")
     }
