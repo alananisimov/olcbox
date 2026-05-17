@@ -42,6 +42,17 @@ fun desktopArchName(arch: String): String = when (arch.lowercase()) {
 fun shellQuote(value: String): String = "'${value.replace("'", "'\"'\"'")}'"
 
 val hostDesktopArch = desktopArchName(System.getProperty("os.arch"))
+val buildOlcRtcCgoLibraries = providers.gradleProperty("olcbox.buildOlcRtcCgo")
+    .orElse(providers.environmentVariable("OLCBOX_BUILD_OLCRTC_CGO"))
+    .map { value ->
+        when (value.lowercase()) {
+            "1", "true", "yes", "on" -> true
+            "0", "false", "no", "off" -> false
+            else -> error("olcbox.buildOlcRtcCgo/OLCBOX_BUILD_OLCRTC_CGO must be true or false")
+        }
+    }
+    .orElse(false)
+    .get()
 
 fun registerOlcRtcBuildTask(
     taskName: String,
@@ -185,40 +196,47 @@ val desktopNativeAssetTasks = mutableListOf<Any>(
     buildOlcRtcWindowsAmd64,
     buildOlcRtcLinuxAmd64,
     buildOlcRtcLinuxArm64,
-    buildOlcRtcLibDarwinArm64,
-    buildOlcRtcLibDarwinAmd64,
-    buildOlcRtcLibLinuxAmd64,
-    buildOlcRtcLibLinuxArm64,
-    buildOlcRtcLibWindowsAmd64,
     copyOlcRtcDataAssets
 )
 val hostDesktopNativeAssetTasks = mutableListOf<Any>(
     copyOlcRtcDataAssets
 )
 
+if (buildOlcRtcCgoLibraries) {
+    desktopNativeAssetTasks.addAll(
+        listOf(
+            buildOlcRtcLibDarwinArm64,
+            buildOlcRtcLibDarwinAmd64,
+            buildOlcRtcLibLinuxAmd64,
+            buildOlcRtcLibLinuxArm64,
+            buildOlcRtcLibWindowsAmd64
+        )
+    )
+}
+
 when {
     currentBuildOs.isMacOsX -> when (hostDesktopArch) {
         "amd64" -> {
             hostDesktopNativeAssetTasks.add(buildOlcRtcDarwinAmd64)
-            hostDesktopNativeAssetTasks.add(buildOlcRtcLibDarwinAmd64)
+            if (buildOlcRtcCgoLibraries) hostDesktopNativeAssetTasks.add(buildOlcRtcLibDarwinAmd64)
         }
         "arm64" -> {
             hostDesktopNativeAssetTasks.add(buildOlcRtcDarwinArm64)
-            hostDesktopNativeAssetTasks.add(buildOlcRtcLibDarwinArm64)
+            if (buildOlcRtcCgoLibraries) hostDesktopNativeAssetTasks.add(buildOlcRtcLibDarwinArm64)
         }
     }
     currentBuildOs.isWindows -> {
         hostDesktopNativeAssetTasks.add(buildOlcRtcWindowsAmd64)
-        hostDesktopNativeAssetTasks.add(buildOlcRtcLibWindowsAmd64)
+        if (buildOlcRtcCgoLibraries) hostDesktopNativeAssetTasks.add(buildOlcRtcLibWindowsAmd64)
     }
     currentBuildOs.isLinux -> when (hostDesktopArch) {
         "amd64" -> {
             hostDesktopNativeAssetTasks.add(buildOlcRtcLinuxAmd64)
-            hostDesktopNativeAssetTasks.add(buildOlcRtcLibLinuxAmd64)
+            if (buildOlcRtcCgoLibraries) hostDesktopNativeAssetTasks.add(buildOlcRtcLibLinuxAmd64)
         }
         "arm64" -> {
             hostDesktopNativeAssetTasks.add(buildOlcRtcLinuxArm64)
-            hostDesktopNativeAssetTasks.add(buildOlcRtcLibLinuxArm64)
+            if (buildOlcRtcCgoLibraries) hostDesktopNativeAssetTasks.add(buildOlcRtcLibLinuxArm64)
         }
     }
 }

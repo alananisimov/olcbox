@@ -37,31 +37,99 @@ class DesktopProxyModeTest {
     fun olcRtcCommandUsesLocationProviderRoomAndKey() {
         LocationConfig.supportedBypassProviders.forEach { provider ->
             val binary = Path.of("/tmp/olcrtc")
+            val configFile = Path.of("/tmp/olcbox-client.yaml")
             val command = OlcRtcCommand(
                 binary = binary,
                 location = LocationConfig("Test", "room-$provider", "b".repeat(64), provider),
                 socksHost = "127.0.0.1",
-                socksPort = 10808
+                socksPort = 10808,
+                configFile = configFile
             ).args()
 
-            assertEquals(binary.toString(), command[0])
-            assertEquals(listOf("-mode", "cnc"), command.slice(1..2))
-            assertContains(command, "-transport")
+            assertEquals(listOf(binary.toString(), configFile.toString()), command)
+        }
+    }
+
+    @Test
+    fun olcRtcCommandWritesUniversalCarrierYamlConfig() {
+        val dataDir = Path.of("/tmp/olcbox-data")
+        val configFile = Path.of("/tmp/olcbox-client.yaml")
+        val command = OlcRtcCommand(
+            binary = Path.of("/tmp/olcrtc"),
+            location = LocationConfig(
+                name = "Jitsi",
+                id = "https://meet.cryptopro.ru/room-one",
+                key = "b".repeat(64),
+                bypassProvider = LocationConfig.PROVIDER_JITSI,
+                transport = LocationConfig.TRANSPORT_DATACHANNEL
+            ),
+            socksHost = "127.0.0.1",
+            socksPort = 10808,
+            socksUser = "user",
+            socksPass = "pass",
+            dataDir = dataDir,
+            configFile = configFile
+        )
+
+        val yaml = command.configYaml()
+
+        assertContains(yaml, "mode: cnc")
+        assertContains(yaml, "link: direct")
+        assertContains(yaml, "provider: jitsi")
+        assertContains(yaml, "id: 'https://meet.cryptopro.ru/room-one'")
+        assertContains(yaml, "key: '${"b".repeat(64)}'")
+        assertContains(yaml, "transport: datachannel")
+        assertContains(yaml, "dns: '1.1.1.1:53'")
+        assertContains(yaml, "host: '127.0.0.1'")
+        assertContains(yaml, "port: 10808")
+        assertContains(yaml, "user: 'user'")
+        assertContains(yaml, "pass: 'pass'")
+        assertContains(yaml, "interval: 30s")
+        assertContains(yaml, "timeout: 15s")
+        assertContains(yaml, "failures: 6")
+        assertContains(yaml, "data: '${dataDir}'")
+    }
+
+    @Test
+    fun olcRtcCommandDefaultsJitsiToDatachannelInYaml() {
+        val command = OlcRtcCommand(
+            binary = Path.of("/tmp/olcrtc"),
+            location = LocationConfig(
+                name = "Jitsi",
+                id = "https://meet.cryptopro.ru/room-one",
+                key = "b".repeat(64),
+                bypassProvider = LocationConfig.PROVIDER_JITSI,
+                transport = ""
+            ),
+            configFile = Path.of("/tmp/olcbox-client.yaml")
+        )
+
+        val yaml = command.configYaml()
+
+        assertContains(yaml, "provider: jitsi")
+        assertContains(yaml, "transport: datachannel")
+        assertTrue("vp8:" !in yaml)
+    }
+
+    @Test
+    fun olcRtcCommandAddsTransportSpecificYamlOnlyWhenNeeded() {
+        LocationConfig.supportedBypassProviders.forEach { provider ->
+            val command = OlcRtcCommand(
+                binary = Path.of("/tmp/olcrtc"),
+                location = LocationConfig("Test", "room-$provider", "b".repeat(64), provider),
+                configFile = Path.of("/tmp/olcbox-client.yaml")
+            )
+
+            val yaml = command.configYaml()
             val expectedTransport = LocationConfig.defaultTransportForProvider(provider)
-            assertContains(command, expectedTransport)
+            assertContains(yaml, "transport: $expectedTransport")
             if (expectedTransport == LocationConfig.TRANSPORT_VP8CHANNEL) {
-                assertContains(command, "-vp8-fps")
-                assertContains(command, "60")
-                assertContains(command, "-vp8-batch")
-                assertContains(command, "64")
+                assertContains(yaml, "vp8:")
+                assertContains(yaml, "fps: 60")
+                assertContains(yaml, "batch_size: 64")
             } else {
-                assertTrue("-vp8-fps" !in command)
-                assertTrue("-vp8-batch" !in command)
+                assertTrue("vp8:" !in yaml)
             }
-            assertEquals(OlcRtcCommand.desktopProviderArg(provider), command[command.indexOf("-carrier") + 1])
-            assertEquals(LocationConfig.DEFAULT_CLIENT_ID, command[command.indexOf("-client-id") + 1])
-            assertContains(command, "room-$provider")
-            assertContains(command, "10808")
         }
     }
 
@@ -77,12 +145,11 @@ class DesktopProxyModeTest {
                 bypassProvider = LocationConfig.PROVIDER_WB_STREAM,
                 transport = LocationConfig.TRANSPORT_DATACHANNEL
             ),
-            dataDir = dataDir
+            dataDir = dataDir,
+            configFile = Path.of("/tmp/olcbox-client.yaml")
         ).args()
 
-        assertContains(command, LocationConfig.TRANSPORT_DATACHANNEL)
-        assertTrue("-vp8-fps" !in command)
-        assertEquals(dataDir.toString(), command[command.indexOf("-data") + 1])
+        assertEquals(listOf(Path.of("/tmp/olcrtc").toString(), Path.of("/tmp/olcbox-client.yaml").toString()), command)
     }
 
     @Test
@@ -95,15 +162,19 @@ class DesktopProxyModeTest {
                 key = "c".repeat(64),
                 bypassProvider = LocationConfig.PROVIDER_TELEMOST,
                 transport = LocationConfig.TRANSPORT_SEICHANNEL
-            )
-        ).args()
+            ),
+            configFile = Path.of("/tmp/olcbox-client.yaml")
+        )
 
-        assertContains(command, LocationConfig.TRANSPORT_SEICHANNEL)
-        assertEquals("60", command[command.indexOf("-fps") + 1])
-        assertEquals("64", command[command.indexOf("-batch") + 1])
-        assertEquals("900", command[command.indexOf("-frag") + 1])
-        assertEquals("2000", command[command.indexOf("-ack-ms") + 1])
-        assertTrue("-vp8-fps" !in command)
+        val yaml = command.configYaml()
+
+        assertContains(yaml, "transport: seichannel")
+        assertContains(yaml, "sei:")
+        assertContains(yaml, "fps: 60")
+        assertContains(yaml, "batch_size: 64")
+        assertContains(yaml, "fragment_size: 900")
+        assertContains(yaml, "ack_timeout_ms: 2000")
+        assertTrue("vp8:" !in yaml)
     }
 
     @Test
@@ -145,10 +216,11 @@ class DesktopProxyModeTest {
                     id = "room-wb",
                     key = "b".repeat(64),
                     bypassProvider = provider
-                )
-            ).args()
+                ),
+                configFile = Path.of("/tmp/olcbox-client.yaml")
+            ).configYaml()
 
-            assertEquals("wbstream", command[command.indexOf("-carrier") + 1])
+            assertContains(command, "provider: wbstream")
         }
     }
 

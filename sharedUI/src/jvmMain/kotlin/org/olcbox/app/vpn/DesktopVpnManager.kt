@@ -27,8 +27,11 @@ import org.olcbox.app.vpn.desktop.LinuxPrivilege
 import org.olcbox.app.vpn.desktop.LinuxTunController
 import org.olcbox.app.vpn.desktop.OlcRtcCommand
 import org.olcbox.app.vpn.desktop.PacServer
+import java.net.HttpURLConnection
 import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.Socket
+import java.net.URL
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
@@ -62,9 +65,16 @@ class DesktopVpnManager private constructor(
     private var operationJob: Job? = null
     private var logJob: Job? = null
     private var tunLogJob: Job? = null
+    private var watchdogJob: Job? = null
     private var process: Process? = null
     private var tunProcess: Process? = null
     private var generation = 0L
+    private var recoveryRequestedForGeneration = 0L
+    private val recoveryState = DesktopRtcRecoveryState(
+        startupGraceMs = RTC_RECOVERY_GRACE_MS,
+        failureWindowMs = RTC_FAILURE_WINDOW_MS,
+        trafficProbeThreshold = TRAFFIC_PROBE_FAILURE_THRESHOLD
+    )
     private val linuxTunController = LinuxTunController(::addLog)
 
     override fun needsPermission(): Boolean = false
@@ -161,7 +171,8 @@ class DesktopVpnManager private constructor(
                 socksSettings = socksSettings,
                 ready = ready,
                 logOutput = true,
-                privileged = useLinuxTun
+                privileged = useLinuxTun,
+                requestGeneration = requestGeneration
             )
 
             waitForOlcRtcReady(
@@ -194,7 +205,10 @@ class DesktopVpnManager private constructor(
                 }
             }
 
+            recoveryRequestedForGeneration = 0L
+            recoveryState.markConnected()
             setStatus(VpnStatus.Connected)
+            startWatchdog(requestGeneration, socksSettings.port)
             addLog(if (useLinuxTun) "Desktop Linux TUN connected" else "Desktop proxy connected")
         } catch (e: Exception) {
             if (e is CancellationException) {
@@ -224,7 +238,15 @@ class DesktopVpnManager private constructor(
             process = null
 
             if (e !is CancellationException && requestGeneration == generation) {
-                setStatus(VpnStatus.Error(e.message ?: "Desktop start failed"))
+                if (isRestart) {
+                    setStatus(VpnStatus.Reconnecting)
+                    scheduleDesktopRetry(
+                        requestGeneration = requestGeneration,
+                        reason = e.message ?: "desktop start failed"
+                    )
+                } else {
+                    setStatus(VpnStatus.Error(e.message ?: "Desktop start failed"))
+                }
             }
         }
     }
@@ -234,7 +256,8 @@ class DesktopVpnManager private constructor(
         socksSettings: DesktopSocksProxySettings,
         ready: CompletableDeferred<Unit>,
         logOutput: Boolean,
-        privileged: Boolean
+        privileged: Boolean,
+        requestGeneration: Long
     ): Process {
         val binaries = DesktopNativeAssets.resolveOlcRtcBinaryCandidates()
         var lastException: Exception? = null
@@ -247,7 +270,8 @@ class DesktopVpnManager private constructor(
                     socksSettings = socksSettings,
                     ready = ready,
                     logOutput = logOutput,
-                    privileged = privileged
+                    privileged = privileged,
+                    requestGeneration = requestGeneration
                 )
             } catch (e: Exception) {
                 lastException = e
@@ -286,6 +310,9 @@ class DesktopVpnManager private constructor(
 
         pacServer.stop()
 
+        watchdogJob?.cancel()
+        watchdogJob = null
+
         stopProcess(process)
         process = null
 
@@ -307,11 +334,13 @@ class DesktopVpnManager private constructor(
         socksSettings: DesktopSocksProxySettings,
         ready: CompletableDeferred<Unit>,
         logOutput: Boolean,
-        privileged: Boolean
+        privileged: Boolean,
+        requestGeneration: Long
     ): Process {
         val config = location.normalized()
         val provider = OlcRtcCommand.desktopProviderArg(config.bypassProvider)
         val dataDir = DesktopNativeAssets.resolveOlcRtcDataDir()
+        val configFile = DesktopPaths.appDataDir().resolve("olcrtc-client.yaml")
         val command = OlcRtcCommand(
             binary = binary,
             location = config,
@@ -319,8 +348,11 @@ class DesktopVpnManager private constructor(
             socksPort = socksSettings.port,
             socksUser = socksSettings.username,
             socksPass = socksSettings.password,
-            dataDir = dataDir
-        ).args()
+            dataDir = dataDir,
+            configFile = configFile
+        )
+        command.writeConfigFile()
+        val args = command.args()
 
         addLog("Starting olcRTC carrier=$provider, transport=${config.transport}, room=${config.id}, port=${socksSettings.port}")
 
@@ -329,7 +361,7 @@ class DesktopVpnManager private constructor(
         }
 
         val processBuilder = ProcessBuilder(
-            if (privileged) LinuxPrivilege.command(command) else command
+            if (privileged) LinuxPrivilege.command(args) else args
         ).redirectErrorStream(true)
 
         processBuilder.environment()["NO_PROXY"] = "127.0.0.1,localhost"
@@ -345,6 +377,8 @@ class DesktopVpnManager private constructor(
                     if (logOutput) {
                         addLog("rtc: $line")
                     }
+
+                    handleRtcLine(line, requestGeneration = requestGeneration)
 
                     if (line.contains("SOCKS5 server listening", ignoreCase = true)) {
                         ready.complete(Unit)
@@ -372,6 +406,123 @@ class DesktopVpnManager private constructor(
                     addLog("tun: $line")
                 }
             }
+        }
+    }
+
+    private fun startWatchdog(requestGeneration: Long, socksPort: Int) {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            while (isActive && requestGeneration == generation && _status.value is VpnStatus.Connected) {
+                delay(WATCHDOG_INTERVAL_MS)
+
+                if (requestGeneration != generation || _status.value !is VpnStatus.Connected) return@launch
+
+                if (process?.isAlive != true) {
+                    requestDesktopRecovery(
+                        reason = "olcRTC process stopped",
+                        fullRestart = false,
+                        requestGeneration = requestGeneration
+                    )
+                    return@launch
+                }
+
+                if (!canConnectToSocks(socksPort)) {
+                    requestDesktopRecovery(
+                        reason = "SOCKS port unavailable",
+                        fullRestart = true,
+                        requestGeneration = requestGeneration
+                    )
+                    return@launch
+                }
+
+                recoveryState.noteTrafficProbe(success = httpProbeThroughSocks(socksPort))?.let { request ->
+                    requestDesktopRecovery(
+                        reason = request.reason,
+                        fullRestart = request.fullRestart,
+                        requestGeneration = requestGeneration
+                    )
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun handleRtcLine(line: String, requestGeneration: Long) {
+        when (val event = RtcLogRecoveryClassifier.classify(line)) {
+            RtcLogEvent.Connected -> recoveryState.markConnected()
+            is RtcLogEvent.Failure -> {
+                recoveryState.noteRtcFailure(event)?.let { request ->
+                    requestDesktopRecovery(
+                        reason = request.reason,
+                        fullRestart = request.fullRestart,
+                        requestGeneration = requestGeneration
+                    )
+                }
+            }
+            null -> Unit
+        }
+    }
+
+    private fun requestDesktopRecovery(
+        reason: String,
+        fullRestart: Boolean,
+        requestGeneration: Long
+    ) {
+        if (requestGeneration != generation) return
+        if (_status.value !is VpnStatus.Connected && _status.value !is VpnStatus.Reconnecting) return
+        if (recoveryRequestedForGeneration == requestGeneration) return
+
+        recoveryRequestedForGeneration = requestGeneration
+        addLog("Watchdog: $reason; reconnecting${if (fullRestart) " with full restart" else ""}")
+
+        scope.launch {
+            mutex.withLock {
+                if (requestGeneration != generation) return@withLock
+                setStatus(VpnStatus.Reconnecting)
+                stopDesktopMode(finalStatus = false)
+                if (requestGeneration == generation) {
+                    startDesktopMode(requestGeneration, isRestart = true)
+                }
+            }
+        }
+    }
+
+    private fun scheduleDesktopRetry(requestGeneration: Long, reason: String) {
+        scope.launch {
+            delay(RECONNECT_RETRY_DELAY_MS)
+            if (requestGeneration != generation) return@launch
+            if (_status.value !is VpnStatus.Reconnecting) return@launch
+
+            addLog("Retrying desktop transport after $reason")
+
+            mutex.withLock {
+                if (requestGeneration != generation) return@withLock
+                if (_status.value !is VpnStatus.Reconnecting) return@withLock
+
+                startDesktopMode(requestGeneration, isRestart = true)
+            }
+        }
+    }
+
+    private fun httpProbeThroughSocks(socksPort: Int): Boolean {
+        return HTTP_PROBE_URLS.any { url ->
+            runCatching {
+                val proxy = Proxy(
+                    Proxy.Type.SOCKS,
+                    InetSocketAddress(PacServer.LOCAL_SOCKS_HOST, socksPort)
+                )
+                val connection = URL(url).openConnection(proxy) as HttpURLConnection
+
+                try {
+                    connection.instanceFollowRedirects = false
+                    connection.connectTimeout = HTTP_PROBE_TIMEOUT_MS.toInt()
+                    connection.readTimeout = HTTP_PROBE_TIMEOUT_MS.toInt()
+                    connection.requestMethod = "GET"
+                    connection.responseCode in 200..399
+                } finally {
+                    connection.disconnect()
+                }
+            }.isSuccess
         }
     }
 
@@ -452,5 +603,15 @@ class DesktopVpnManager private constructor(
         const val PROCESS_STOP_TIMEOUT_MS = 3_000L
         const val PROCESS_KILL_TIMEOUT_MS = 1_000L
         const val DEFAULT_LOCATION_PING_PARALLELISM = 4
+        const val WATCHDOG_INTERVAL_MS = 30_000L
+        const val HTTP_PROBE_TIMEOUT_MS = 8_000L
+        const val RECONNECT_RETRY_DELAY_MS = 3_000L
+        const val RTC_RECOVERY_GRACE_MS = 2_500L
+        const val RTC_FAILURE_WINDOW_MS = 6_000L
+        const val TRAFFIC_PROBE_FAILURE_THRESHOLD = 2
+        val HTTP_PROBE_URLS = listOf(
+            "https://www.google.com/generate_204",
+            "https://cloudflare.com/cdn-cgi/trace"
+        )
     }
 }

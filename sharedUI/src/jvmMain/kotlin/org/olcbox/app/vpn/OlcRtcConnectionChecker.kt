@@ -236,17 +236,21 @@ internal object OlcRtcConnectionChecker {
     ): Process {
         val normalized = config.normalized()
         val dataDir = DesktopNativeAssets.resolveOlcRtcDataDir()
+        val configFile = dataDir.parent.resolve("olcrtc-check-$socksPort.yaml")
 
         val command = OlcRtcCommand(
             binary = binary,
             location = normalized,
             socksHost = PacServer.LOCAL_SOCKS_HOST,
             socksPort = socksPort,
-            dataDir = dataDir
-        ).args()
+            dataDir = dataDir,
+            configFile = configFile
+        )
+        command.writeConfigFile()
+        val args = command.args()
 
         val processBuilder = ProcessBuilder(
-            if (privileged) LinuxPrivilege.command(command) else command
+            if (privileged) LinuxPrivilege.command(args) else args
         ).redirectErrorStream(true)
 
         processBuilder.environment()["NO_PROXY"] = "127.0.0.1,localhost"

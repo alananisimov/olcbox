@@ -53,6 +53,42 @@ class RtcLogRecoveryClassifierTest {
     }
 
     @Test
+    fun treatsConferenceEndAsImmediateTunnelRecovery() {
+        assertEquals(
+            RtcLogEvent.Failure(
+                reason = "RTC conference ended",
+                recreateTunnel = true,
+                threshold = 1
+            ),
+            RtcLogRecoveryClassifier.classify("Client link reported conference end: jitsi bridge closed")
+        )
+    }
+
+    @Test
+    fun treatsHandshakeTimeoutAsRecoverableTransportFailure() {
+        assertEquals(
+            RtcLogEvent.Failure(
+                reason = "RTC handshake failed",
+                recreateTunnel = false,
+                threshold = 1
+            ),
+            RtcLogRecoveryClassifier.classify("handshake client: read welcome: read hdr: timeout")
+        )
+    }
+
+    @Test
+    fun treatsUnexpectedControlPingAsRecoverableTransportFailure() {
+        assertEquals(
+            RtcLogEvent.Failure(
+                reason = "RTC handshake failed",
+                recreateTunnel = false,
+                threshold = 1
+            ),
+            RtcLogRecoveryClassifier.classify("unexpected handshake message: got \"CONTROL_PING\"")
+        )
+    }
+
+    @Test
     fun ignoresTrafficLines() {
         assertNull(
             RtcLogRecoveryClassifier.classify(

@@ -31,6 +31,28 @@ internal object RtcLogRecoveryClassifier {
             )
         }
 
+        if (lowerLine.contains("conference end") ||
+            lowerLine.contains("conference ended") ||
+            lowerLine.contains("jitsi bridge closed")
+        ) {
+            return RtcLogEvent.Failure(
+                reason = "RTC conference ended",
+                recreateTunnel = true,
+                threshold = 1
+            )
+        }
+
+        if (lowerLine.contains("read welcome") ||
+            lowerLine.contains("unexpected handshake message") ||
+            lowerLine.contains("control_ping")
+        ) {
+            return RtcLogEvent.Failure(
+                reason = "RTC handshake failed",
+                recreateTunnel = false,
+                threshold = 1
+            )
+        }
+
         if (lowerLine.contains("control stream unhealthy")) {
             return RtcLogEvent.Failure(
                 reason = "RTC control stream unhealthy",
@@ -79,7 +101,9 @@ internal object RtcLogRecoveryClassifier {
 
         if (lowerLine.contains("network is unreachable") ||
             lowerLine.contains("use of closed network connection") ||
-            lowerLine.contains("read/write on closed pipe")
+            lowerLine.contains("read/write on closed pipe") ||
+            lowerLine.contains("remote not ready") ||
+            lowerLine.contains("read_err=eof")
         ) {
             return RtcLogEvent.Failure(
                 reason = "RTC network path is closed",
