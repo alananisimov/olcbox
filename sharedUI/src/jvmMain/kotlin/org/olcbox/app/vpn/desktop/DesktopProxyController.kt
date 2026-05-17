@@ -118,7 +118,8 @@ internal class WindowsProxyController : DesktopProxyController {
 
     override suspend fun enable(pacUrl: String, socksHost: String, socksPort: Int) {
         backup = readState()
-        enableCommands(socksHost, socksPort).forEach { runCommand(it) }
+        enableCommands(socksHost, socksPort, removeAutoConfigUrl = backup?.autoConfigUrl != null)
+            .forEach { runCommand(it) }
         refreshProxySettings()
     }
 
@@ -161,13 +162,25 @@ internal class WindowsProxyController : DesktopProxyController {
     companion object {
         private const val REGISTRY_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
 
-        fun enableCommands(socksHost: String, socksPort: Int): List<List<String>> {
-            return listOf(
-                setDwordCommand("ProxyEnable", "1"),
-                setStringCommand("ProxyServer", "socks=$socksHost:$socksPort"),
-                setStringCommand("ProxyOverride", "<local>;localhost;127.*"),
-                listOf("reg", "delete", REGISTRY_KEY, "/v", "AutoConfigURL", "/f")
-            )
+        fun enableCommands(
+            socksHost: String,
+            socksPort: Int,
+            removeAutoConfigUrl: Boolean = true
+        ): List<List<String>> {
+            return buildList {
+                add(
+                    setDwordCommand("ProxyEnable", "1")
+                )
+                add(
+                    setStringCommand("ProxyServer", "socks=$socksHost:$socksPort")
+                )
+                add(
+                    setStringCommand("ProxyOverride", "<local>;localhost;127.*")
+                )
+                if (removeAutoConfigUrl) {
+                    add(listOf("reg", "delete", REGISTRY_KEY, "/v", "AutoConfigURL", "/f"))
+                }
+            }
         }
 
         fun restoreCommands(state: WindowsProxyState): List<List<String>> {

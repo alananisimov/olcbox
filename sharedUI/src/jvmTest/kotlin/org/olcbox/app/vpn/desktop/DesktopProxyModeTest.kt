@@ -6,6 +6,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DesktopProxyModeTest {
@@ -260,6 +261,19 @@ class DesktopProxyModeTest {
         assertContains(enable.flatten(), "socks=127.0.0.1:10808")
         assertContains(enable.flatten(), "AutoConfigURL")
         assertContains(enable.flatten(), "delete")
+    }
+
+    @Test
+    fun windowsProxyCommandsSkipPacDeleteWhenAutoConfigUrlIsAbsent() {
+        val enable = WindowsProxyController.enableCommands(
+            socksHost = "127.0.0.1",
+            socksPort = 10808,
+            removeAutoConfigUrl = false
+        )
+
+        assertContains(enable.flatten(), "ProxyEnable")
+        assertContains(enable.flatten(), "ProxyServer")
+        assertFalse(enable.any { command -> command.contains("AutoConfigURL") && command.contains("delete") })
     }
 
     @Test
