@@ -54,6 +54,7 @@ data class LocationConfig(
 
     companion object {
         const val PROVIDER_JAZZ = "jazz"
+        const val PROVIDER_JITSI = "jitsi"
         const val PROVIDER_TELEMOST = "telemost"
         const val PROVIDER_WB_STREAM = "wbstream"
         const val DEFAULT_BYPASS_PROVIDER = PROVIDER_WB_STREAM
@@ -70,6 +71,7 @@ data class LocationConfig(
 
         val supportedBypassProviders = listOf(
             PROVIDER_JAZZ,
+            PROVIDER_JITSI,
             PROVIDER_TELEMOST,
             PROVIDER_WB_STREAM
         )
@@ -82,6 +84,7 @@ data class LocationConfig(
 
         fun supportedTransportsForProvider(provider: String): List<String> {
             return when (normalizeProvider(provider)) {
+                PROVIDER_JITSI -> listOf(TRANSPORT_DATACHANNEL)
                 PROVIDER_TELEMOST -> listOf(TRANSPORT_VP8CHANNEL, TRANSPORT_SEICHANNEL)
                 else -> supportedTransports
             }
@@ -90,9 +93,17 @@ data class LocationConfig(
         fun normalizeProvider(value: String): String {
             return when (value.trim().lowercase()) {
                 PROVIDER_JAZZ, "sberjazz", "sber_jazz" -> PROVIDER_JAZZ
+                PROVIDER_JITSI, "jitsi-meet", "meet.jit.si", "meet_cryptopro" -> PROVIDER_JITSI
                 PROVIDER_TELEMOST, "yandex", "yandex_telemost" -> PROVIDER_TELEMOST
                 PROVIDER_WB_STREAM, "wbstream", "wb-stream", "wildberries" -> PROVIDER_WB_STREAM
                 else -> DEFAULT_BYPASS_PROVIDER
+            }
+        }
+
+        fun defaultTransportForProvider(provider: String): String {
+            return when (normalizeProvider(provider)) {
+                PROVIDER_JITSI -> TRANSPORT_DATACHANNEL
+                else -> DEFAULT_TRANSPORT
             }
         }
 
@@ -101,15 +112,16 @@ data class LocationConfig(
                 TRANSPORT_DATACHANNEL, "data", "dc" -> TRANSPORT_DATACHANNEL
                 TRANSPORT_VP8CHANNEL, "vp8", "video_vp8", "video-vp8" -> TRANSPORT_VP8CHANNEL
                 TRANSPORT_SEICHANNEL, "sei", "sei_channel", "sei-channel", "h264_sei" -> TRANSPORT_SEICHANNEL
-                else -> DEFAULT_TRANSPORT
+                else -> defaultTransportForProvider(provider)
             }
             return normalized.takeIf { it in supportedTransportsForProvider(provider) }
-                ?: DEFAULT_TRANSPORT
+                ?: defaultTransportForProvider(provider)
         }
 
         fun providerDisplayName(provider: String): String {
             return when (normalizeProvider(provider)) {
                 PROVIDER_JAZZ -> "Jazz"
+                PROVIDER_JITSI -> "Jitsi"
                 PROVIDER_TELEMOST -> "Telemost"
                 PROVIDER_WB_STREAM -> "WB Stream"
                 else -> "WB Stream"

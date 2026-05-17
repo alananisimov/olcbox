@@ -41,6 +41,8 @@ import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.vpn.AndroidConnectionMode
 import org.olcbox.app.vpn.AndroidSocksProxySettings
 import org.olcbox.app.vpn.AndroidSplitTunnelMode
+import org.olcbox.app.vpn.RtcLogEvent
+import org.olcbox.app.vpn.RtcLogRecoveryClassifier
 import org.olcbox.app.vpn.UpstreamCandidate
 import org.olcbox.app.vpn.UpstreamNetworkSelector
 import org.olcbox.app.vpn.UpstreamTransport
@@ -137,6 +139,13 @@ class OlcboxVpnService : VpnService() {
             if (network == currentNetwork) {
                 updateUnderlyingNetwork(null)
                 unbindProcessFromNetwork()
+            }
+            if (OlcboxVpnState.status.value is VpnStatus.Connected ||
+                OlcboxVpnState.status.value is VpnStatus.Reconnecting
+            ) {
+                setStatus(VpnStatus.Reconnecting)
+                updateNotification("Waiting for network...")
+                scheduleTransportRetry(generation, "network lost", NETWORK_RETRY_DELAY_MS)
             }
             scope.launch {
                 delay(NETWORK_LOSS_FALLBACK_DELAY_MS)
@@ -540,6 +549,11 @@ class OlcboxVpnService : VpnService() {
         Mobile.setTransport(config.transport)
         Mobile.setDNS("1.1.1.1:53")
         Mobile.setVP8Options(config.vp8Fps.toLong(), config.vp8Batch.toLong())
+        Mobile.setLivenessOptions(
+            RTC_LIVENESS_INTERVAL_MS,
+            RTC_LIVENESS_TIMEOUT_MS,
+            RTC_LIVENESS_FAILURES
+        )
     }
 
     private fun startTun2socks(pfd: ParcelFileDescriptor): Boolean {
@@ -879,47 +893,16 @@ class OlcboxVpnService : VpnService() {
     }
 
     private fun handleRtcLine(line: String) {
-        val lowerLine = line.lowercase()
-
-        if (lowerLine.contains("ice connection state changed: connected") ||
-            lowerLine.contains("peer connection state changed: connected") ||
-            lowerLine.contains("socks5 server listening")
-        ) {
-            markRtcConnected()
-            return
-        }
-
-        if (lowerLine.contains("ice connection state changed: failed") ||
-            lowerLine.contains("peer connection state changed: failed")
-        ) {
-            noteRtcFailure(
-                reason = "RTC failed",
-                fullRestart = shouldRecreateTunnelOnRtcLoss(),
-                threshold = RTC_FAILED_RECOVERY_THRESHOLD
-            )
-            return
-        }
-
-        if (lowerLine.contains("ice connection state changed: closed") ||
-            lowerLine.contains("peer connection state changed: closed")
-        ) {
-            noteRtcFailure(
-                reason = "RTC closed",
-                fullRestart = shouldRecreateTunnelOnRtcLoss(),
-                threshold = RTC_CLOSED_RECOVERY_THRESHOLD
-            )
-            return
-        }
-
-        if (lowerLine.contains("network is unreachable") ||
-            lowerLine.contains("use of closed network connection") ||
-            lowerLine.contains("read/write on closed pipe")
-        ) {
-            noteRtcFailure(
-                reason = "RTC network path is closed",
-                fullRestart = false,
-                threshold = RTC_IO_ERROR_RECOVERY_THRESHOLD
-            )
+        when (val event = RtcLogRecoveryClassifier.classify(line)) {
+            RtcLogEvent.Connected -> markRtcConnected()
+            is RtcLogEvent.Failure -> {
+                noteRtcFailure(
+                    reason = event.reason,
+                    fullRestart = event.recreateTunnel && shouldRecreateTunnelOnRtcLoss(),
+                    threshold = event.threshold
+                )
+            }
+            null -> Unit
         }
     }
 
@@ -940,7 +923,12 @@ class OlcboxVpnService : VpnService() {
         fullRestart: Boolean,
         threshold: Int
     ) {
-        if (OlcboxVpnState.status.value !is VpnStatus.Connected) return
+        val status = OlcboxVpnState.status.value
+        if (status is VpnStatus.Reconnecting) {
+            scheduleTransportRetry(generation, reason, RECONNECT_RETRY_DELAY_MS)
+            return
+        }
+        if (status !is VpnStatus.Connected) return
 
         val now = System.currentTimeMillis()
         if (now - lastRtcConnectedAtMs < RTC_RECOVERY_GRACE_MS) return
@@ -1394,6 +1382,9 @@ class OlcboxVpnService : VpnService() {
         private const val LOCAL_SOCKS_PORT_BASE = 10818
         private const val LOCAL_SOCKS_PORT_MAX = 10858
         private const val MOBILE_READY_TIMEOUT_MS = 25_000L
+        private const val RTC_LIVENESS_INTERVAL_MS = 30_000L
+        private const val RTC_LIVENESS_TIMEOUT_MS = 15_000L
+        private const val RTC_LIVENESS_FAILURES = 6L
         private const val PREVIOUS_STOP_WAIT_MS = 2_000L
         private const val TUNNEL_HANDOFF_DELAY_MS = 300L
         private const val NETWORK_LOSS_FALLBACK_DELAY_MS = 300L
@@ -1402,9 +1393,6 @@ class OlcboxVpnService : VpnService() {
         private const val WATCHDOG_STALLED_SAMPLE_LIMIT = 3
         private const val RTC_RECOVERY_GRACE_MS = 2_500L
         private const val RTC_FAILURE_WINDOW_MS = 6_000L
-        private const val RTC_FAILED_RECOVERY_THRESHOLD = 1
-        private const val RTC_CLOSED_RECOVERY_THRESHOLD = 2
-        private const val RTC_IO_ERROR_RECOVERY_THRESHOLD = 3
         private const val RECONNECT_RETRY_DELAY_MS = 4_000L
         private const val NETWORK_RETRY_DELAY_MS = 8_000L
         private const val SOCKS_RELEASE_TIMEOUT_MS = 2_500L

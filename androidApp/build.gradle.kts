@@ -37,6 +37,7 @@ android {
         applicationId = "org.olcbox.app"
         versionCode = olcboxVersionCode.get()
         versionName = olcboxVersion.get()
+        manifestPlaceholders["appLabel"] = "Olcbox"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -56,6 +57,10 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = ".jitsi"
+            versionNameSuffix = "-jitsi"
+            manifestPlaceholders["appLabel"] = "Olcbox Jitsi"
+
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }

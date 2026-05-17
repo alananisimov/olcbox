@@ -526,6 +526,7 @@ private fun ActionsBar(
 private fun roomIdPlaceholder(provider: String): String {
     return when (LocationConfig.normalizeProvider(provider)) {
         LocationConfig.PROVIDER_TELEMOST -> "12345678901234"
+        LocationConfig.PROVIDER_JITSI -> "https://meet.cryptopro.ru/room-name"
         LocationConfig.PROVIDER_JAZZ -> "room id or any"
         LocationConfig.PROVIDER_WB_STREAM -> "123e4567-e89b-12d3-a456-426614174000"
         else -> "room id"
