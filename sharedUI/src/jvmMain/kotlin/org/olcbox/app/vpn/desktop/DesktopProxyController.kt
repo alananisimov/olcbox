@@ -227,7 +227,7 @@ internal class WindowsProxyController : DesktopProxyController {
                 add(
                     setStringCommand(
                         "ProxyServer",
-                        "http=$httpProxyHost:$httpProxyPort;https=$httpProxyHost:$httpProxyPort;socks=$socksHost:$socksPort"
+                        "$httpProxyHost:$httpProxyPort"
                     )
                 )
                 add(
@@ -297,7 +297,7 @@ internal class WindowsProxyController : DesktopProxyController {
                 "winhttp",
                 "set",
                 "proxy",
-                "proxy-server=http=$host:$port;https=$host:$port",
+                "proxy-server=$host:$port",
                 "bypass-list=<local>;localhost;127.*"
             )
         }
