@@ -124,8 +124,18 @@ internal data class WindowsProxyState(
     val proxyEnable: String?,
     val proxyServer: String?,
     val proxyOverride: String?,
-    val autoConfigUrl: String?
+    val autoConfigUrl: String?,
+    val winHttp: WindowsWinHttpProxyState = WindowsWinHttpProxyState.Unknown
 )
+
+internal sealed interface WindowsWinHttpProxyState {
+    data object Direct : WindowsWinHttpProxyState
+    data class Proxy(
+        val proxyServer: String,
+        val bypassList: String?
+    ) : WindowsWinHttpProxyState
+    data object Unknown : WindowsWinHttpProxyState
+}
 
 internal class WindowsProxyController : DesktopProxyController {
     private var backup: WindowsProxyState? = null
@@ -145,7 +155,13 @@ internal class WindowsProxyController : DesktopProxyController {
             httpProxyPort = httpProxyPort,
             removeAutoConfigUrl = backup?.autoConfigUrl != null
         )
-            .forEach { runCommand(it) }
+            .forEach { command ->
+                if (command.isWinHttpCommand()) {
+                    runCatching { runCommand(command) }
+                } else {
+                    runCommand(command)
+                }
+            }
         refreshProxySettings()
     }
 
@@ -163,7 +179,8 @@ internal class WindowsProxyController : DesktopProxyController {
             proxyEnable = queryValue("ProxyEnable"),
             proxyServer = queryValue("ProxyServer"),
             proxyOverride = queryValue("ProxyOverride"),
-            autoConfigUrl = queryValue("AutoConfigURL")
+            autoConfigUrl = queryValue("AutoConfigURL"),
+            winHttp = readWinHttpState()
         )
     }
 
@@ -179,6 +196,14 @@ internal class WindowsProxyController : DesktopProxyController {
             ?.lastOrNull()
             ?.trim()
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun readWinHttpState(): WindowsWinHttpProxyState {
+        val output = runCatching {
+            runCommand(listOf("netsh", "winhttp", "dump"))
+        }.getOrNull() ?: return WindowsWinHttpProxyState.Unknown
+
+        return parseWinHttpDump(output)
     }
 
     private suspend fun refreshProxySettings() {
@@ -211,15 +236,40 @@ internal class WindowsProxyController : DesktopProxyController {
                 if (removeAutoConfigUrl) {
                     add(listOf("reg", "delete", REGISTRY_KEY, "/v", "AutoConfigURL", "/f"))
                 }
+                add(winHttpSetProxyCommand(httpProxyHost, httpProxyPort))
             }
         }
 
         fun restoreCommands(state: WindowsProxyState): List<List<String>> {
-            return listOf(
+            return listOfNotNull(
                 valueCommand("ProxyEnable", state.proxyEnable, isDword = true),
                 valueCommand("ProxyServer", state.proxyServer, isDword = false),
                 valueCommand("ProxyOverride", state.proxyOverride, isDword = false),
-                valueCommand("AutoConfigURL", state.autoConfigUrl, isDword = false)
+                valueCommand("AutoConfigURL", state.autoConfigUrl, isDword = false),
+                winHttpRestoreCommand(state.winHttp)
+            )
+        }
+
+        fun parseWinHttpDump(output: String): WindowsWinHttpProxyState {
+            val setProxyLine = output.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("set proxy", ignoreCase = true) }
+
+            if (setProxyLine == null) {
+                return if (output.contains("reset proxy", ignoreCase = true)) {
+                    WindowsWinHttpProxyState.Direct
+                } else {
+                    WindowsWinHttpProxyState.Unknown
+                }
+            }
+
+            val proxyServer = extractNetshValue(setProxyLine, "proxy-server")
+                ?: return WindowsWinHttpProxyState.Unknown
+            val bypassList = extractNetshValue(setProxyLine, "bypass-list")
+
+            return WindowsWinHttpProxyState.Proxy(
+                proxyServer = proxyServer,
+                bypassList = bypassList
             )
         }
 
@@ -241,6 +291,41 @@ internal class WindowsProxyController : DesktopProxyController {
             return listOf("reg", "add", REGISTRY_KEY, "/v", name, "/t", "REG_DWORD", "/d", value, "/f")
         }
 
+        private fun winHttpSetProxyCommand(host: String, port: Int): List<String> {
+            return listOf(
+                "netsh",
+                "winhttp",
+                "set",
+                "proxy",
+                "proxy-server=http=$host:$port;https=$host:$port",
+                "bypass-list=<local>;localhost;127.*"
+            )
+        }
+
+        private fun winHttpRestoreCommand(state: WindowsWinHttpProxyState): List<String>? {
+            return when (state) {
+                WindowsWinHttpProxyState.Direct -> listOf("netsh", "winhttp", "reset", "proxy")
+                is WindowsWinHttpProxyState.Proxy -> buildList {
+                    add("netsh")
+                    add("winhttp")
+                    add("set")
+                    add("proxy")
+                    add("proxy-server=${state.proxyServer}")
+                    state.bypassList?.takeIf { it.isNotBlank() }?.let {
+                        add("bypass-list=$it")
+                    }
+                }
+                WindowsWinHttpProxyState.Unknown -> null
+            }
+        }
+
+        private fun extractNetshValue(line: String, key: String): String? {
+            val match = Regex("""\b$key=(?:"([^"]*)"|(\S+))""", RegexOption.IGNORE_CASE).find(line)
+                ?: return null
+            return match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+                ?: match.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }
+        }
+
         fun refreshCommand(): List<String> {
             val script = """
                 ${'$'}signature = '[System.Runtime.InteropServices.DllImport("wininet.dll", SetLastError = true)] public static extern bool InternetSetOption(System.IntPtr hInternet, int dwOption, System.IntPtr lpBuffer, int dwBufferLength);';
@@ -251,6 +336,10 @@ internal class WindowsProxyController : DesktopProxyController {
             return listOf("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
         }
     }
+}
+
+private fun List<String>.isWinHttpCommand(): Boolean {
+    return size >= 2 && this[0].equals("netsh", ignoreCase = true) && this[1].equals("winhttp", ignoreCase = true)
 }
 
 private suspend fun runCommand(command: List<String>): String = withContext(Dispatchers.IO) {

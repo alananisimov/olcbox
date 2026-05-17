@@ -283,7 +283,8 @@ class DesktopProxyModeTest {
                 proxyEnable = "0x1",
                 proxyServer = "127.0.0.1:8888",
                 proxyOverride = "<local>",
-                autoConfigUrl = null
+                autoConfigUrl = null,
+                winHttp = WindowsWinHttpProxyState.Direct
             )
         )
 
@@ -292,6 +293,107 @@ class DesktopProxyModeTest {
         assertContains(restore.flatten(), "ProxyOverride")
         assertContains(restore.flatten(), "AutoConfigURL")
         assertContains(restore.flatten(), "delete")
+    }
+
+    @Test
+    fun windowsProxyCommandsSetWinHttpToOlcboxHttpProxy() {
+        val enable = WindowsProxyController.enableCommands(
+            socksHost = "127.0.0.1",
+            socksPort = 10808,
+            httpProxyHost = "127.0.0.1",
+            httpProxyPort = 10810
+        )
+
+        assertTrue(
+            enable.any { command ->
+                command == listOf(
+                    "netsh",
+                    "winhttp",
+                    "set",
+                    "proxy",
+                    "proxy-server=http=127.0.0.1:10810;https=127.0.0.1:10810",
+                    "bypass-list=<local>;localhost;127.*"
+                )
+            }
+        )
+    }
+
+    @Test
+    fun windowsProxyCommandsRestoreDirectWinHttpProxy() {
+        val restore = WindowsProxyController.restoreCommands(
+            WindowsProxyState(
+                proxyEnable = "0x1",
+                proxyServer = null,
+                proxyOverride = null,
+                autoConfigUrl = null,
+                winHttp = WindowsWinHttpProxyState.Direct
+            )
+        )
+
+        assertTrue(restore.any { command -> command == listOf("netsh", "winhttp", "reset", "proxy") })
+    }
+
+    @Test
+    fun windowsProxyCommandsRestorePreviousWinHttpProxy() {
+        val restore = WindowsProxyController.restoreCommands(
+            WindowsProxyState(
+                proxyEnable = "0x1",
+                proxyServer = null,
+                proxyOverride = null,
+                autoConfigUrl = null,
+                winHttp = WindowsWinHttpProxyState.Proxy(
+                    proxyServer = "http=127.0.0.1:3067;https=127.0.0.1:3067",
+                    bypassList = "<local>"
+                )
+            )
+        )
+
+        assertTrue(
+            restore.any { command ->
+                command == listOf(
+                    "netsh",
+                    "winhttp",
+                    "set",
+                    "proxy",
+                    "proxy-server=http=127.0.0.1:3067;https=127.0.0.1:3067",
+                    "bypass-list=<local>"
+                )
+            }
+        )
+    }
+
+    @Test
+    fun windowsWinHttpDumpParserKeepsDirectState() {
+        val state = WindowsProxyController.parseWinHttpDump(
+            """
+            # WinHTTP Proxy Configuration
+            pushd winhttp
+            reset proxy
+            popd
+            """.trimIndent()
+        )
+
+        assertEquals(WindowsWinHttpProxyState.Direct, state)
+    }
+
+    @Test
+    fun windowsWinHttpDumpParserKeepsProxyState() {
+        val state = WindowsProxyController.parseWinHttpDump(
+            """
+            # WinHTTP Proxy Configuration
+            pushd winhttp
+            set proxy proxy-server="http=127.0.0.1:3067;https=127.0.0.1:3067" bypass-list="<local>"
+            popd
+            """.trimIndent()
+        )
+
+        assertEquals(
+            WindowsWinHttpProxyState.Proxy(
+                proxyServer = "http=127.0.0.1:3067;https=127.0.0.1:3067",
+                bypassList = "<local>"
+            ),
+            state
+        )
     }
 
     @Test

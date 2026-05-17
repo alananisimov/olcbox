@@ -96,6 +96,11 @@ internal object DesktopNativeAssets {
             return target
         }
 
+        if (target.exists()) {
+            makeExecutable(target)
+            return target
+        }
+
         error("Bundled native binary is missing: $resourceName")
     }
 
