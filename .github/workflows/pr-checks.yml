@@ -41,7 +41,7 @@ jobs:
           java-version: '21'
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 'stable'
           cache-dependency-path: olcrtc/go.sum
