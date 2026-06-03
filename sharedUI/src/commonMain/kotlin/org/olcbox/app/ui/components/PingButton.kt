@@ -35,6 +35,13 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_connectivity_check_checking
+import multiplatform_app.sharedui.generated.resources.home_connectivity_check_connected
+import multiplatform_app.sharedui.generated.resources.home_connectivity_check_offline
+import multiplatform_app.sharedui.generated.resources.home_connectivity_check_prompt
+import multiplatform_app.sharedui.generated.resources.home_connectivity_check_title
+import org.jetbrains.compose.resources.stringResource
 
 sealed class PingState {
     object Idle : PingState()
@@ -50,12 +57,19 @@ fun PingButton(
     configGetter: () -> LocationConfig? = { null }
 ) {
     var pingState by remember { mutableStateOf<PingState>(PingState.Idle) }
+    val checkTitleText = stringResource(Res.string.home_connectivity_check_title)
+    val checkPromptText = stringResource(Res.string.home_connectivity_check_prompt)
+    val checkOfflineText = stringResource(Res.string.home_connectivity_check_offline)
+    val checkCheckingText = stringResource(Res.string.home_connectivity_check_checking)
 
     val descriptionText = when (pingState) {
-        is PingState.Error -> "Offline"
-        is PingState.Loading -> "Checking..."
-        is PingState.Success -> "Connected ${(pingState as PingState.Success).latency}ms"
-        else -> "Click To Verify Reachability"
+        is PingState.Error -> checkOfflineText
+        is PingState.Loading -> checkCheckingText
+        is PingState.Success -> stringResource(
+            Res.string.home_connectivity_check_connected,
+            (pingState as PingState.Success).latency
+        )
+        else -> checkPromptText
     }
 
     val stateIcon: @Composable () -> Unit = {
@@ -107,7 +121,7 @@ fun PingButton(
                     pingState = if (result != null) {
                         PingState.Success(result)
                     } else {
-                        PingState.Error("Offline")
+                        PingState.Error(checkOfflineText)
                     }
                 }
             }
@@ -133,7 +147,7 @@ fun PingButton(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Connectivity Check",
+                    text = checkTitleText,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface

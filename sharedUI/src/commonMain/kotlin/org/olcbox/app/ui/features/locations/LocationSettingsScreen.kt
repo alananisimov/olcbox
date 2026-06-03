@@ -68,6 +68,30 @@ import androidx.compose.foundation.layout.ime
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.ui.components.PingButton
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_back
+import multiplatform_app.sharedui.generated.resources.home_clear
+import multiplatform_app.sharedui.generated.resources.home_connection_type
+import multiplatform_app.sharedui.generated.resources.home_connection_type_jitsi
+import multiplatform_app.sharedui.generated.resources.home_connection_type_service
+import multiplatform_app.sharedui.generated.resources.home_delete
+import multiplatform_app.sharedui.generated.resources.home_field_encryption_key
+import multiplatform_app.sharedui.generated.resources.home_field_encryption_key_placeholder
+import multiplatform_app.sharedui.generated.resources.home_field_location_name
+import multiplatform_app.sharedui.generated.resources.home_field_name
+import multiplatform_app.sharedui.generated.resources.home_field_service
+import multiplatform_app.sharedui.generated.resources.home_field_transport
+import multiplatform_app.sharedui.generated.resources.home_location_settings_title
+import multiplatform_app.sharedui.generated.resources.home_room_id
+import multiplatform_app.sharedui.generated.resources.home_room_id_placeholder_default
+import multiplatform_app.sharedui.generated.resources.home_room_id_placeholder_jazz
+import multiplatform_app.sharedui.generated.resources.home_room_url
+import multiplatform_app.sharedui.generated.resources.home_room_url_placeholder
+import multiplatform_app.sharedui.generated.resources.home_save
+import multiplatform_app.sharedui.generated.resources.home_share_location
+import multiplatform_app.sharedui.generated.resources.home_vp8_options
+import multiplatform_app.sharedui.generated.resources.home_vp8_options_subtitle
+import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,13 +100,16 @@ fun LocationSettingsTopBar(
     onBack: () -> Unit,
     onShare: () -> Unit
 ) {
+    val titleText = stringResource(Res.string.home_location_settings_title)
+    val backText = stringResource(Res.string.home_back)
+    val shareLocationText = stringResource(Res.string.home_share_location)
     TopAppBar(
-        title = { Text("Location settings") },
+        title = { Text(titleText) },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back"
+                    contentDescription = backText
                 )
             }
         },
@@ -97,7 +124,7 @@ fun LocationSettingsTopBar(
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Share,
-                    contentDescription = "Share location"
+                    contentDescription = shareLocationText
                 )
             }
         }
@@ -112,6 +139,11 @@ fun LocationSettingsScreen(
     onShareLocationRequested: (LocationConfig) -> Unit = {},
     onBack: () -> Unit
 ) {
+    val nameLabelText = stringResource(Res.string.home_field_name)
+    val locationNamePlaceholderText = stringResource(Res.string.home_field_location_name)
+    val encryptionKeyLabelText = stringResource(Res.string.home_field_encryption_key)
+    val encryptionKeyPlaceholderText = stringResource(Res.string.home_field_encryption_key_placeholder)
+
     val config = viewModel.editingConfig
     val name = viewModel.editingName
     val isSaving = viewModel.isSaving
@@ -171,8 +203,8 @@ fun LocationSettingsScreen(
                 SettingsTextField(
                     value = name,
                     onValueChange = viewModel::onNameChanged,
-                    label = "Name",
-                    placeholder = "Location name",
+                    label = nameLabelText,
+                    placeholder = locationNamePlaceholderText,
                     enabled = !isSaving,
                     isError = viewModel.nameError != null,
                     supportingText = viewModel.nameError,
@@ -246,8 +278,8 @@ fun LocationSettingsScreen(
                 SettingsTextField(
                     value = config.key,
                     onValueChange = viewModel::onPasswordChanged,
-                    label = "Encryption key",
-                    placeholder = "64 hex characters",
+                    label = encryptionKeyLabelText,
+                    placeholder = encryptionKeyPlaceholderText,
                     enabled = !isSaving,
                     isError = viewModel.keyError != null,
                     supportingText = viewModel.keyError,
@@ -306,7 +338,7 @@ private fun ConnectionTypePicker(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        SectionTitle(title = "Connection type")
+        SectionTitle(title = stringResource(Res.string.home_connection_type))
 
         SingleChoiceSegmentedButtonRow(
             modifier = Modifier.fillMaxWidth()
@@ -333,7 +365,10 @@ private fun ConnectionTypePicker(
                     enabled = enabled,
                     label = {
                         Text(
-                            text = type.label,
+                            text = when (type) {
+                                ConnectionType.Service -> stringResource(Res.string.home_connection_type_service)
+                                ConnectionType.Jitsi -> stringResource(Res.string.home_connection_type_jitsi)
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -355,7 +390,7 @@ private fun ProviderPicker(
         .filterNot { it == LocationConfig.PROVIDER_JITSI }
 
     SettingsDropdown(
-        label = "Service",
+        label = stringResource(Res.string.home_field_service),
         selectedValue = selected,
         options = options,
         enabled = enabled,
@@ -376,7 +411,7 @@ private fun TransportPicker(
     val options = LocationConfig.supportedTransportsForProvider(provider)
 
     SettingsDropdown(
-        label = "Transport",
+        label = stringResource(Res.string.home_field_transport),
         selectedValue = selected,
         options = options,
         enabled = enabled,
@@ -455,8 +490,8 @@ private fun Vp8OptionsCard(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         SectionTitle(
-            title = "VP8 options",
-            subtitle = "Fine-tune stream performance"
+            title = stringResource(Res.string.home_vp8_options),
+            subtitle = stringResource(Res.string.home_vp8_options_subtitle)
         )
 
         Row(
@@ -513,7 +548,7 @@ private fun SettingsTextField(
         trailingIcon = {
             if (value.isNotEmpty() && enabled) {
                 IconButton(onClick = onClear) {
-                    Icon(Icons.Default.Close, contentDescription = "Clear")
+                    Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.home_clear))
                 }
             }
         }
@@ -563,7 +598,7 @@ private fun ActionsBar(
                 shape = CircleShape,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Icon(Icons.Outlined.Delete, contentDescription = "Delete")
+                Icon(Icons.Outlined.Delete, contentDescription = stringResource(Res.string.home_delete))
             }
 
             Spacer(modifier = Modifier.width(14.dp))
@@ -586,24 +621,34 @@ private fun ActionsBar(
             } else {
                 Icon(Icons.Rounded.Check, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    stringResource(Res.string.home_save),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
 }
 
+@Composable
 private fun roomIdPlaceholder(provider: String): String {
     return when (LocationConfig.normalizeProvider(provider)) {
         LocationConfig.PROVIDER_TELEMOST -> "12345678901234"
-        LocationConfig.PROVIDER_JAZZ -> "room id or any"
+        LocationConfig.PROVIDER_JAZZ -> stringResource(Res.string.home_room_id_placeholder_jazz)
         LocationConfig.PROVIDER_WB_STREAM -> "123e4567-e89b-12d3-a456-426614174000"
-        LocationConfig.PROVIDER_JITSI -> "https://meet.example.com/room"
-        else -> "room id"
+        LocationConfig.PROVIDER_JITSI -> stringResource(Res.string.home_room_url_placeholder)
+        else -> stringResource(Res.string.home_room_id_placeholder_default)
     }
 }
 
+@Composable
 private fun roomIdLabel(provider: String): String {
-    return if (isJitsiProvider(provider)) "Room URL" else "Room ID"
+    return if (isJitsiProvider(provider)) {
+        stringResource(Res.string.home_room_url)
+    } else {
+        stringResource(Res.string.home_room_id)
+    }
 }
 
 private fun roomKeyboardType(provider: String): KeyboardType {
@@ -614,7 +659,7 @@ private fun isJitsiProvider(provider: String): Boolean {
     return LocationConfig.normalizeProvider(provider) == LocationConfig.PROVIDER_JITSI
 }
 
-private enum class ConnectionType(val label: String) {
-    Service("Service"),
-    Jitsi("Jitsi")
+private enum class ConnectionType {
+    Service,
+    Jitsi
 }

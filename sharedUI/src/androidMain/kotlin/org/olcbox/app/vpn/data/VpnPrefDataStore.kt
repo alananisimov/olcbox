@@ -22,3 +22,4 @@ val KEY_ANDROID_SPLIT_TUNNEL_MODE = stringPreferencesKey("android_split_tunnel_m
 val KEY_ANDROID_SPLIT_TUNNEL_PROXY_APPS = stringSetPreferencesKey("android_split_tunnel_proxy_apps")
 val KEY_ANDROID_SPLIT_TUNNEL_BYPASS_APPS = stringSetPreferencesKey("android_split_tunnel_bypass_apps")
 val KEY_ANDROID_DYNAMIC_THEME = booleanPreferencesKey("android_dynamic_theme")
+val KEY_ANDROID_APP_LANGUAGE = stringPreferencesKey("android_app_language")

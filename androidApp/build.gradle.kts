@@ -125,5 +125,6 @@ kotlin {
 dependencies {
     implementation(project(":sharedUI"))
     implementation(libs.androidx.activityCompose)
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.datastore.preferences)
 }

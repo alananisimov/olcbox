@@ -35,6 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_logs_close
+import multiplatform_app.sharedui.generated.resources.home_logs_title
+import multiplatform_app.sharedui.generated.resources.home_save
+import multiplatform_app.sharedui.generated.resources.home_share
+import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +86,10 @@ fun LogsContent(
     onShareClick: () -> Unit,
     onCloseClick: () -> Unit
 ) {
+    val logsTitleText = stringResource(Res.string.home_logs_title)
+    val saveText = stringResource(Res.string.home_save)
+    val shareText = stringResource(Res.string.home_share)
+    val closeLogsText = stringResource(Res.string.home_logs_close)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -94,7 +104,7 @@ fun LogsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Application Logs",
+                text = logsTitleText,
                 style = MaterialTheme.typography.headlineSmall,
             )
 
@@ -103,19 +113,19 @@ fun LogsContent(
                     enabled = logs.isNotEmpty(),
                     onClick = onSaveClick
                 ) {
-                    Text("Save")
+                    Text(saveText)
                 }
                 TextButton(
                     enabled = logs.isNotEmpty(),
                     onClick = onShareClick
                 ) {
-                    Text("Share")
+                    Text(shareText)
                 }
 
                 IconButton(onClick = onCloseClick) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
-                        contentDescription = "Close logs",
+                        contentDescription = closeLogsText,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

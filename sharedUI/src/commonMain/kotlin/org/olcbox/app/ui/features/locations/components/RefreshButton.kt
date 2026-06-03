@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_ping
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun RefreshButton(
@@ -30,6 +33,7 @@ fun RefreshButton(
     onClick: () -> Unit,
     tint: Color
 ) {
+    val pingText = stringResource(Res.string.home_ping)
     val rotation by if (isRefreshing) {
         val infiniteTransition = rememberInfiniteTransition()
         infiniteTransition.animateFloat(
@@ -58,6 +62,6 @@ fun RefreshButton(
                 .rotate(rotation)
         )
         Spacer(Modifier.size(8.dp))
-        Text("Ping")
+        Text(pingText)
     }
 }

@@ -22,6 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_imported_from_clipboard
+import multiplatform_app.sharedui.generated.resources.home_subscriptions_not_updated
+import multiplatform_app.sharedui.generated.resources.home_subscriptions_updated
+import multiplatform_app.sharedui.generated.resources.run
+import multiplatform_app.sharedui.generated.resources.setup
+import multiplatform_app.sharedui.generated.resources.stop
 import org.olcbox.app.ui.components.StartButton
 import org.olcbox.app.ui.features.home.components.AddConfigurationSheet
 import org.olcbox.app.ui.features.home.components.HomeScreenAppBar
@@ -29,6 +36,7 @@ import org.olcbox.app.ui.features.home.components.LocationSelectorScreen
 import org.olcbox.app.ui.features.home.components.LogsSheet
 import org.olcbox.app.ui.features.home.components.RelayStatus
 import org.olcbox.app.ui.features.locations.LocationViewModel
+import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,11 +69,17 @@ fun HomeScreen(
     val hasSubscriptions = locations.any { !it.subscriptionUrl.isNullOrBlank() }
 
     val requiresSetup = !state.canStartVpn && !state.isVpnConnected && !state.isVpnLoading
+    val actionRunText = stringResource(Res.string.run)
+    val actionStopText = stringResource(Res.string.stop)
+    val actionSetupText = stringResource(Res.string.setup)
+    val subscriptionsUpdatedTemplate = stringResource(Res.string.home_subscriptions_updated)
+    val subscriptionsNotUpdatedText = stringResource(Res.string.home_subscriptions_not_updated)
+    val importedFromClipboardText = stringResource(Res.string.home_imported_from_clipboard)
 
     val primaryActionLabel = when {
-        requiresSetup -> "SETUP"
-        state.isVpnLoading || state.isVpnConnected -> "STOP"
-        else -> "START"
+        requiresSetup -> actionSetupText
+        state.isVpnLoading || state.isVpnConnected -> actionStopText
+        else -> actionRunText
     }
 
     fun refreshSubscriptions() {
@@ -74,9 +88,9 @@ fun HomeScreen(
                 viewModel.restartVpnIfRunning()
 
                 val message = if (updatedCount > 0) {
-                    "Subscriptions updated: $updatedCount"
+                    subscriptionsUpdatedTemplate.format(updatedCount)
                 } else {
-                    "No subscriptions to update"
+                    subscriptionsNotUpdatedText
                 }
 
                 scope.launch {
@@ -224,7 +238,7 @@ fun HomeScreen(
                     onImportFromClipboardRequested(
                         {
                             scope.launch {
-                                snackbarHostState.showSnackbar("Imported from clipboard")
+                                snackbarHostState.showSnackbar(importedFromClipboardText)
                             }
                         },
                         { message ->

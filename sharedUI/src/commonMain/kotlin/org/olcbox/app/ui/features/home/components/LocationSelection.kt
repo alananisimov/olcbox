@@ -1,4 +1,4 @@
-package org.olcbox.app.ui.features.home.components
+﻿package org.olcbox.app.ui.features.home.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -30,10 +30,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_add_custom_location
+import multiplatform_app.sharedui.generated.resources.home_add_relay_setup
+import multiplatform_app.sharedui.generated.resources.home_add_subscription
+import multiplatform_app.sharedui.generated.resources.home_create_custom_location
+import multiplatform_app.sharedui.generated.resources.home_create_custom_location_subtitle
+import multiplatform_app.sharedui.generated.resources.home_custom_locations
+import multiplatform_app.sharedui.generated.resources.home_scan_qr_paste_import_subtitle
+import multiplatform_app.sharedui.generated.resources.home_subscription_available
+import multiplatform_app.sharedui.generated.resources.home_subscription_refresh
+import multiplatform_app.sharedui.generated.resources.home_subscription_used
+import multiplatform_app.sharedui.generated.resources.home_subscription_used_available
+import multiplatform_app.sharedui.generated.resources.home_subscriptions_title
 import org.olcbox.app.ui.features.locations.LocationItem
 import org.olcbox.app.ui.features.locations.PingsState
 import org.olcbox.app.ui.features.locations.components.LocationRow
 import org.olcbox.app.ui.features.locations.components.RefreshButton
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun LocationSelectorScreen(
@@ -47,6 +61,9 @@ fun LocationSelectorScreen(
     onLocationSelected: (String) -> Unit,
     onLocationSettingsClick: (String) -> Unit
 ) {
+    val customLocationsText = stringResource(Res.string.home_custom_locations)
+    val addCustomLocationText = stringResource(Res.string.home_add_custom_location)
+    val addSubscriptionText = stringResource(Res.string.home_add_subscription)
     Column(modifier = modifier.fillMaxWidth()) {
         val subscriptionLocations = locations.filter { !it.subscriptionUrl.isNullOrBlank() }
         val subscriptionGroups = subscriptionLocations
@@ -117,11 +134,11 @@ fun LocationSelectorScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         LocationGroupHeader(
-                            title = "Custom locations",
+                            title = customLocationsText,
                             modifier = Modifier.weight(1f)
                         )
 
-                        // 2. Вычисляем состояние загрузки только для кастомных локаций
+                        // 2. Р’С‹С‡РёСЃР»СЏРµРј СЃРѕСЃС‚РѕСЏРЅРёРµ Р·Р°РіСЂСѓР·РєРё С‚РѕР»СЊРєРѕ РґР»СЏ РєР°СЃС‚РѕРјРЅС‹С… Р»РѕРєР°С†РёР№
                         val customIds = customLocations.map { it.storageId }
                         val isCustomRefreshing = pingsState is PingsState.Loading &&
                                 pingsState.pendingLocationIds.any { it in customIds }
@@ -156,13 +173,21 @@ fun LocationSelectorScreen(
                     .height(54.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Add custom location",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = addCustomLocationText,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             if (subscriptionLocations.isEmpty()) {
@@ -173,13 +198,21 @@ fun LocationSelectorScreen(
                         .height(54.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Add subscription",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = addSubscriptionText,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -191,12 +224,17 @@ private fun RelaySetupCard(
     onAddSubscriptionClick: () -> Unit,
     onAddLocationClick: () -> Unit
 ) {
+    val relaySetupText = stringResource(Res.string.home_add_relay_setup)
+    val addSubscriptionText = stringResource(Res.string.home_add_subscription)
+    val addSubscriptionSubtitleText = stringResource(Res.string.home_scan_qr_paste_import_subtitle)
+    val createCustomLocationText = stringResource(Res.string.home_create_custom_location)
+    val createCustomLocationSubtitleText = stringResource(Res.string.home_create_custom_location_subtitle)
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "Add relay setup",
+            text = relaySetupText,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
@@ -204,16 +242,16 @@ private fun RelaySetupCard(
         )
 
         SetupActionRow(
-            title = "Add subscription",
-            subtitle = "Scan QR, paste URI, or import file",
+            title = addSubscriptionText,
+            subtitle = addSubscriptionSubtitleText,
             icon = Icons.Outlined.QrCodeScanner,
             prominent = true,
             onClick = onAddSubscriptionClick
         )
 
         SetupActionRow(
-            title = "Create custom location",
-            subtitle = "Enter room, key, provider, and transport",
+            title = createCustomLocationText,
+            subtitle = createCustomLocationSubtitleText,
             icon = Icons.Outlined.Add,
             onClick = onAddLocationClick
         )
@@ -321,8 +359,18 @@ private fun SubscriptionGroupHeader(
     modifier: Modifier = Modifier
 ) {
     val first = locations.firstOrNull()
-    val title = first?.subscriptionTitle().orEmpty().ifBlank { "Subscriptions" }
-    val details = first?.subscriptionDetails()
+    val subscriptionsTitleText = stringResource(Res.string.home_subscriptions_title)
+    val subscriptionRefreshTemplate = stringResource(Res.string.home_subscription_refresh)
+    val subscriptionUsedAvailableTemplate = stringResource(Res.string.home_subscription_used_available)
+    val subscriptionUsedTemplate = stringResource(Res.string.home_subscription_used)
+    val subscriptionAvailableTemplate = stringResource(Res.string.home_subscription_available)
+    val title = first?.subscriptionTitle(subscriptionsTitleText).orEmpty().ifBlank { subscriptionsTitleText }
+    val details = first?.subscriptionDetails(
+        subscriptionRefreshTemplate = subscriptionRefreshTemplate,
+        subscriptionUsedAvailableTemplate = subscriptionUsedAvailableTemplate,
+        subscriptionUsedTemplate = subscriptionUsedTemplate,
+        subscriptionAvailableTemplate = subscriptionAvailableTemplate
+    )
 
     Column(modifier = modifier.padding(start = 4.dp, top = 2.dp)) {
         Text(
@@ -419,29 +467,47 @@ private fun LocationItem.subscriptionGroupKey(): String {
     ).joinToString("|").ifBlank { storageId }
 }
 
-private fun LocationItem.subscriptionTitle(): String {
+private fun LocationItem.subscriptionTitle(subscriptionsTitleText: String): String {
     val subscription = metadata?.subscription
 
     return listOfNotNull(
         subscription?.icon?.takeIf { it.isNotBlank() },
-        subscription?.name?.takeIf { it.isNotBlank() } ?: "Subscriptions"
+        subscription?.name?.takeIf { it.isNotBlank() } ?: subscriptionsTitleText
     ).joinToString(" ")
 }
 
-private fun LocationItem.subscriptionDetails(): String? {
+private fun LocationItem.subscriptionDetails(
+    subscriptionRefreshTemplate: String,
+    subscriptionUsedAvailableTemplate: String,
+    subscriptionUsedTemplate: String,
+    subscriptionAvailableTemplate: String
+): String? {
     val subscription = metadata?.subscription ?: return null
 
     return listOfNotNull(
-        quotaText(subscription.used, subscription.available),
-        subscription.refresh?.takeIf { it.isNotBlank() }?.let { "Refresh $it" }
+        quotaText(
+            used = subscription.used,
+            available = subscription.available,
+            subscriptionUsedAvailableTemplate = subscriptionUsedAvailableTemplate,
+            subscriptionUsedTemplate = subscriptionUsedTemplate,
+            subscriptionAvailableTemplate = subscriptionAvailableTemplate
+        ),
+        subscription.refresh?.takeIf { it.isNotBlank() }?.let { subscriptionRefreshTemplate.format(it) }
     ).joinToString(" · ").takeIf { it.isNotBlank() }
 }
 
-private fun quotaText(used: String?, available: String?): String? {
+private fun quotaText(
+    used: String?,
+    available: String?,
+    subscriptionUsedAvailableTemplate: String,
+    subscriptionUsedTemplate: String,
+    subscriptionAvailableTemplate: String
+): String? {
     return when {
-        !used.isNullOrBlank() && !available.isNullOrBlank() -> "$used used · $available available"
-        !used.isNullOrBlank() -> "$used used"
-        !available.isNullOrBlank() -> "$available available"
+        !used.isNullOrBlank() && !available.isNullOrBlank() ->
+            subscriptionUsedAvailableTemplate.format(used, available)
+        !used.isNullOrBlank() -> subscriptionUsedTemplate.format(used)
+        !available.isNullOrBlank() -> subscriptionAvailableTemplate.format(available)
         else -> null
     }
 }
@@ -453,3 +519,4 @@ private fun plural(value: Long, unit: String): String {
 private const val MINUTE_MILLIS = 60_000L
 private const val HOUR_MILLIS = 60 * MINUTE_MILLIS
 private const val DAY_MILLIS = 24 * HOUR_MILLIS
+

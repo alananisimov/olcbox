@@ -37,6 +37,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_add_connection_subtitle
+import multiplatform_app.sharedui.generated.resources.home_add_connection_title
+import multiplatform_app.sharedui.generated.resources.home_add_create_custom_title
+import multiplatform_app.sharedui.generated.resources.home_add_create_custom_value
+import multiplatform_app.sharedui.generated.resources.home_add_import_file_title
+import multiplatform_app.sharedui.generated.resources.home_add_import_file_value
+import multiplatform_app.sharedui.generated.resources.home_add_paste_link_title
+import multiplatform_app.sharedui.generated.resources.home_add_paste_link_value
+import multiplatform_app.sharedui.generated.resources.home_add_scan_qr_title
+import multiplatform_app.sharedui.generated.resources.home_add_scan_qr_value
+import multiplatform_app.sharedui.generated.resources.home_add_update_subscriptions_title
+import multiplatform_app.sharedui.generated.resources.home_add_update_subscriptions_value
+import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +65,18 @@ fun AddConfigurationSheet(
     onAddCustomLocationClick: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val addConnectionTitleText = stringResource(Res.string.home_add_connection_title)
+    val addConnectionSubtitleText = stringResource(Res.string.home_add_connection_subtitle)
+    val scanQrTitleText = stringResource(Res.string.home_add_scan_qr_title)
+    val scanQrValueText = stringResource(Res.string.home_add_scan_qr_value)
+    val pasteLinkTitleText = stringResource(Res.string.home_add_paste_link_title)
+    val pasteLinkValueText = stringResource(Res.string.home_add_paste_link_value)
+    val importFileTitleText = stringResource(Res.string.home_add_import_file_title)
+    val importFileValueText = stringResource(Res.string.home_add_import_file_value)
+    val updateSubscriptionsTitleText = stringResource(Res.string.home_add_update_subscriptions_title)
+    val updateSubscriptionsValueText = stringResource(Res.string.home_add_update_subscriptions_value)
+    val createCustomLocationTitleText = stringResource(Res.string.home_add_create_custom_title)
+    val createCustomLocationValueText = stringResource(Res.string.home_add_create_custom_value)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -64,8 +90,8 @@ fun AddConfigurationSheet(
                 .padding(bottom = 32.dp)
         ) {
             AddSheetHeader(
-                title = "Add connection",
-                subtitle = "Subscription or custom location"
+                title = addConnectionTitleText,
+                subtitle = addConnectionSubtitleText
             )
 
             Spacer(Modifier.height(20.dp))
@@ -73,31 +99,31 @@ fun AddConfigurationSheet(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (canScanQr) {
                     AddSheetAction(
-                        title = "Scan QR code",
-                        value = "Subscription or olcrtc URI",
+                        title = scanQrTitleText,
+                        value = scanQrValueText,
                         icon = Icons.Outlined.QrCodeScanner,
                         onClick = onScanQrClick
                     )
                 }
 
                 AddSheetAction(
-                    title = "Paste link or URI",
-                    value = "HTTP, HTTPS, or olcrtc URI",
+                    title = pasteLinkTitleText,
+                    value = pasteLinkValueText,
                     icon = Icons.AutoMirrored.Outlined.Input,
                     onClick = onPasteLinkClick
                 )
 
                 AddSheetAction(
-                    title = "Import from file",
-                    value = "Read subscription or config file",
+                    title = importFileTitleText,
+                    value = importFileValueText,
                     icon = Icons.Outlined.FileOpen,
                     onClick = onImportFileClick
                 )
 
                 if (hasSubscriptions) {
                     AddSheetAction(
-                        title = "Update subscriptions",
-                        value = "Refresh imported subscription locations",
+                        title = updateSubscriptionsTitleText,
+                        value = updateSubscriptionsValueText,
                         icon = Icons.Outlined.Refresh,
                         showChevron = false,
                         onClick = onUpdateSubscriptionsClick
@@ -105,8 +131,8 @@ fun AddConfigurationSheet(
                 }
 
                 AddSheetAction(
-                    title = "Create custom location",
-                        value = "Enter room, key, provider, and transport",
+                    title = createCustomLocationTitleText,
+                    value = createCustomLocationValueText,
                     icon = Icons.Outlined.Add,
                     onClick = onAddCustomLocationClick
                 )

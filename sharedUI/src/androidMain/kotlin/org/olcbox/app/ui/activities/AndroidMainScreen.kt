@@ -19,8 +19,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.launch
 import org.olcbox.app.data.share.ConfigShareService
+import org.olcbox.app.settings.AppLanguage
 import org.olcbox.app.update.AndroidUpdateSettingsStore
 import org.olcbox.app.update.AppUpdateInfo
 import org.olcbox.app.update.AppUpdateSettings
@@ -39,6 +41,7 @@ import org.olcbox.app.vpn.AndroidConnectionMode
 import org.olcbox.app.vpn.AndroidSplitTunnelList
 import org.olcbox.app.vpn.AndroidSplitTunnelMode
 import org.olcbox.app.vpn.AndroidVpnManager
+import org.olcbox.app.sharedui.R
 
 @Composable
 fun AndroidMainScreen(
@@ -76,6 +79,7 @@ fun AndroidMainScreen(
     val proxySettings by vpnManager.proxySettings.collectAsState()
     val splitTunnelSettings by vpnManager.splitTunnelSettings.collectAsState()
     val dynamicThemeEnabled by vpnManager.dynamicThemeEnabled.collectAsState()
+    val appLanguage by vpnManager.appLanguage.collectAsState()
     val installedApps by vpnManager.installedApps.collectAsState()
     val homeState by viewModel.state.collectAsState()
     val logs by viewModel.logs.collectAsState()
@@ -124,6 +128,28 @@ fun AndroidMainScreen(
                 locationCount = items.size
             )
         }
+    val updateServiceUnavailableText = stringResource(R.string.android_update_service_unavailable)
+    val updateCheckingTemplate = stringResource(R.string.android_update_checking)
+    val updateDownloadedLatestTemplate = stringResource(R.string.android_update_downloaded_latest)
+    val updateAvailableTemplate = stringResource(R.string.android_update_available)
+    val updateUpToDateText = stringResource(R.string.android_update_up_to_date)
+    val updateFailedText = stringResource(R.string.android_update_failed)
+    val updateAllowInstallText = stringResource(R.string.android_update_allow_install)
+    val updateDownloadingTemplate = stringResource(R.string.android_update_downloading)
+    val updateDownloadFailedTemplate = stringResource(R.string.android_update_download_failed)
+    val updateInstallingTemplate = stringResource(R.string.android_update_installing)
+    val updateCheckingText: (String) -> String = { channel -> updateCheckingTemplate.format(channel) }
+    val updateDownloadedLatestText: (String) -> String = { channel -> updateDownloadedLatestTemplate.format(channel) }
+    val updateAvailableText: (String, String) -> String = { channel, version ->
+        updateAvailableTemplate.format(channel, version)
+    }
+    val updateDownloadingText: (String) -> String = { assetName -> updateDownloadingTemplate.format(assetName) }
+    val updateDownloadFailedText: (String) -> String = { reason -> updateDownloadFailedTemplate.format(reason) }
+    val updateInstallingText: (String) -> String = { assetName -> updateInstallingTemplate.format(assetName) }
+    val qrImportedText = stringResource(R.string.android_qr_imported)
+    val configCopiedText = stringResource(R.string.android_config_copied)
+    val subscriptionUpdatedText = stringResource(R.string.android_subscription_updated)
+    val subscriptionNotUpdatedText = stringResource(R.string.android_subscription_not_updated)
 
     val updateInstallLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -160,20 +186,20 @@ fun AndroidMainScreen(
     fun showUpdateResult(info: AppUpdateInfo) {
         if (info.isDownloaded(updateSettings)) {
             updateOffer = null
-            updateStatusText = "Latest ${info.channel.name.lowercase()} is already downloaded"
+            updateStatusText = updateDownloadedLatestText(info.channel.name.lowercase())
         } else if (info.isUpdateAvailable) {
             updateOffer = info
-            updateStatusText = "${info.channel.name} update available: ${info.version}"
+            updateStatusText = updateAvailableText(info.channel.name, info.version)
         } else {
             updateOffer = null
-            updateStatusText = "Olcbox is up to date"
+            updateStatusText = updateUpToDateText
         }
     }
 
     fun checkUpdate(manual: Boolean) {
         val service = appUpdateService
         if (service == null) {
-            updateStatusText = "Update service unavailable"
+            updateStatusText = updateServiceUnavailableText
             return
         }
         scope.launch {
@@ -181,7 +207,7 @@ fun AndroidMainScreen(
             val checkStartedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
             if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
 
-            updateStatusText = "Checking ${previousSettings.channel.name.lowercase()}..."
+            updateStatusText = updateCheckingText(previousSettings.channel.name.lowercase())
             val result = service.check(
                 previousSettings.channel,
                 vpnManager.subscriptionFetchProxy()
@@ -199,7 +225,7 @@ fun AndroidMainScreen(
                     }
                 },
                 onFailure = { error ->
-                    updateStatusText = error.message ?: "Update check failed"
+                    updateStatusText = error.message ?: updateFailedText
                 }
             )
         }
@@ -209,23 +235,23 @@ fun AndroidMainScreen(
         scope.launch {
             if (!updateInstaller.canRequestPackageInstalls()) {
                 updateInstaller.openUnknownSourcesSettings()
-                updateStatusText = "Allow Olcbox to install updates, then tap Download again"
+                updateStatusText = updateAllowInstallText
                 Toast.makeText(context, updateStatusText, Toast.LENGTH_LONG).show()
                 return@launch
             }
 
             updateDownloadProgress = 0f
-            updateStatusText = "Downloading ${info.asset.name}..."
+            updateStatusText = updateDownloadingText(info.asset.name)
             val result = updateInstaller.download(info.asset) { progress ->
                 updateDownloadProgress = progress
             }
             val file = result.getOrElse { error ->
-                updateStatusText = "Download failed: ${error.message ?: "unknown error"}"
+                updateStatusText = updateDownloadFailedText(error.message ?: "unknown error")
                 updateDownloadProgress = null
                 Toast.makeText(context, updateStatusText, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            updateStatusText = "Installing ${info.asset.name}"
+            updateStatusText = updateInstallingText(info.asset.name)
             saveUpdateSettings(
                 updateSettings.copy(
                     lastSeenUpdateVersion = info.identity(),
@@ -298,11 +324,11 @@ fun AndroidMainScreen(
         if (rawText.isBlank()) return@rememberLauncherForActivityResult
 
         viewModel.onImportFullConfig(rawText) {
-            reloadLocationsAfterImport {
-                Toast.makeText(context, "QR imported", Toast.LENGTH_SHORT).show()
+                reloadLocationsAfterImport {
+                    Toast.makeText(context, qrImportedText, Toast.LENGTH_SHORT).show()
+                }
             }
         }
-    }
 
     val logSaveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -410,6 +436,7 @@ fun AndroidMainScreen(
             installedApps = installedApps,
             logs = logs,
             dynamicThemeEnabled = dynamicThemeEnabled,
+            appLanguage = appLanguage,
             updateSettings = updateSettings,
             updateStatusText = updateStatusText,
             updateDownloadProgress = updateDownloadProgress,
@@ -422,7 +449,7 @@ fun AndroidMainScreen(
             },
             onCopyConfigClick = {
                 viewModel.onCopyFullConfigClicked()
-                Toast.makeText(context, "Config copied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, configCopiedText, Toast.LENGTH_SHORT).show()
             },
             onSaveLogsClick = {
                 val showToast: (String) -> Unit = { message ->
@@ -454,13 +481,14 @@ fun AndroidMainScreen(
                         viewModel.restartVpnIfRunning()
                         Toast.makeText(
                             context,
-                            if (updatedCount > 0) "Subscription updated" else "Subscription not updated",
+                            if (updatedCount > 0) subscriptionUpdatedText else subscriptionNotUpdatedText,
                             Toast.LENGTH_SHORT
                         ).show()
                     }
                 }
             },
             onDynamicThemeChanged = vpnManager::setDynamicThemeEnabled,
+            onAppLanguageChanged = vpnManager::setAppLanguage,
             onModeSelected = { mode ->
                 if (mode != connectionMode && homeState.isVpnConnected) {
                     val prepIntent = if (mode == AndroidConnectionMode.Tun) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.home_connected
+import multiplatform_app.sharedui.generated.resources.home_disconnected
+import multiplatform_app.sharedui.generated.resources.home_no_location_selected
+import multiplatform_app.sharedui.generated.resources.home_relay_active
+import multiplatform_app.sharedui.generated.resources.home_relay_inactive
+import multiplatform_app.sharedui.generated.resources.home_status_active_icon_desc
+import multiplatform_app.sharedui.generated.resources.home_status_inactive_icon_desc
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun RelayStatus(
@@ -58,19 +68,26 @@ fun RelayStatus(
         requiresSetup -> MaterialTheme.colorScheme.onSurface
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val relayActiveText = stringResource(Res.string.home_relay_active)
+    val relayInactiveText = stringResource(Res.string.home_relay_inactive)
+    val connectedText = stringResource(Res.string.home_connected)
+    val disconnectedText = stringResource(Res.string.home_disconnected)
+    val noLocationSelectedText = stringResource(Res.string.home_no_location_selected)
+    val activeIconDesc = stringResource(Res.string.home_status_active_icon_desc)
+    val inactiveIconDesc = stringResource(Res.string.home_status_inactive_icon_desc)
     val title = when {
-        isActive -> "Relay Active"
-        requiresSetup -> "Relay Inactive"
-        else -> "Relay Inactive"
+        isActive -> relayActiveText
+        requiresSetup -> relayInactiveText
+        else -> relayInactiveText
     }
     val subtitle = when {
-        isActive -> "Connected"
-        requiresSetup -> "No location selected"
-        else -> "Disconnected"
+        isActive -> connectedText
+        requiresSetup -> noLocationSelectedText
+        else -> disconnectedText
     }
 
     Surface(
-        modifier = modifier.width(272.dp),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         color = containerColor,
     ) {
@@ -92,13 +109,13 @@ fun RelayStatus(
                         Icon(
                             tint = iconContentColor,
                             imageVector = Icons.Rounded.VerifiedUser,
-                            contentDescription = "Active"
+                            contentDescription = activeIconDesc
                         )
                     } else {
                         Icon(
                             tint = iconContentColor,
                             imageVector = Icons.Outlined.Shield,
-                            contentDescription = "Inactive"
+                            contentDescription = inactiveIconDesc
                         )
                     }
                 }

@@ -25,6 +25,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.run
+import multiplatform_app.sharedui.generated.resources.setup
+import multiplatform_app.sharedui.generated.resources.stop
+import org.jetbrains.compose.resources.stringResource
 
 sealed class StartButtonState {
     object Idle : StartButtonState()
@@ -42,6 +47,9 @@ fun StartButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val actionRunText = stringResource(Res.string.run)
+    val actionStopText = stringResource(Res.string.stop)
+    val actionSetupText = stringResource(Res.string.setup)
     val mainButtonColor by animateColorAsState(
         targetValue = when {
             isActive -> MaterialTheme.colorScheme.primary
@@ -101,10 +109,10 @@ fun StartButton(
 
             Text(
                 text = label ?: when {
-                    isLoading -> "STOP"
-                    isActive -> "STOP"
-                    requiresSetup -> "SETUP"
-                    else -> "START"
+                    isLoading -> actionStopText
+                    isActive -> actionStopText
+                    requiresSetup -> actionSetupText
+                    else -> actionRunText
                 },
                 color = contentColor.copy(alpha = if (!enabled) 0.7f else 1f),
                 fontSize = 22.sp,
