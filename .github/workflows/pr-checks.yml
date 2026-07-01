@@ -22,12 +22,12 @@ jobs:
 
     steps:
       - name: Checkout olcbox
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: olcbox
 
       - name: Checkout olcrtc
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: alananisimov/olcrtc
           ref: master
