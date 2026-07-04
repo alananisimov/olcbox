@@ -808,7 +808,7 @@ class OlcboxVpnService : VpnService() {
             socks5:
               address: ${socksConnectHost()}
               port: $socksListenPort
-              udp: 'tcp'
+              udp: 'udp'
               pipeline: false
               username: '$socksUsername'
               password: '$socksPassword'
