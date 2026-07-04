@@ -180,6 +180,7 @@ private fun locationSubtitle(location: LocationItem): String {
     return listOfNotNull(
         providerName,
         transportName,
+        location.routingSummary,
         metadata?.comment?.takeIf { it.isNotBlank() },
         metadata?.ip?.takeIf { it.isNotBlank() }?.let { "IP $it" },
         quotaText(metadata?.used, metadata?.available)

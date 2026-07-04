@@ -1,6 +1,7 @@
 package org.olcbox.app.vpn.desktop
 
 import org.olcbox.app.data.model.LocationConfig
+import org.olcbox.app.data.routing.Ipv4Cidr
 import org.olcbox.app.vpn.olcRtcNativeLibrarySpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -327,14 +328,17 @@ class DesktopProxyModeTest {
 
     @Test
     fun linuxTunScriptsRouteUserTrafficThroughTunAndKeepRootDirect() {
-        val up = LinuxTunController.upScriptContent()
-        val down = LinuxTunController.downScriptContent()
+        val bypassCidrs = listOf(Ipv4Cidr("10.0.0.0/8", "10.0.0.0", 8))
+        val up = LinuxTunController.upScriptContent(bypassCidrs)
+        val down = LinuxTunController.downScriptContent(bypassCidrs)
 
         assertContains(up, "ip rule add uidrange 0-0 lookup main pref 10")
+        assertContains(up, "ip rule add to 10.0.0.0/8 lookup main pref 11")
         assertContains(up, "ip route add default dev olcbox0 table 51820")
         assertContains(up, "ip rule add lookup 51820 pref 20")
         assertContains(up, "resolvectl dns olcbox0 1.1.1.1")
         assertContains(down, "ip rule del uidrange 0-0 lookup main pref 10")
+        assertContains(down, "ip rule del to 10.0.0.0/8 lookup main pref 11")
         assertContains(down, "ip route flush table 51820")
         assertContains(down, "resolvectl revert olcbox0")
     }

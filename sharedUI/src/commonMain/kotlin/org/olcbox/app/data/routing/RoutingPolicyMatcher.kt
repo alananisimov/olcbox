@@ -6,6 +6,12 @@ import org.olcbox.app.data.model.RoutingRuleConfig
 import org.olcbox.app.data.model.RoutingRuleType
 import org.olcbox.app.data.model.RoutingSplitTunnelMode
 
+data class Ipv4Cidr(
+    val value: String,
+    val address: String,
+    val prefixLength: Int
+)
+
 enum class RoutingDecision {
     Proxy,
     Bypass
@@ -66,19 +72,30 @@ object RoutingPolicyMatcher {
     }
 
     private fun ipv4InCidr(ip: String, cidr: String): Boolean {
-        val separator = cidr.indexOf('/')
-        if (separator <= 0 || separator == cidr.lastIndex) return false
-
-        val network = parseIpv4(cidr.substring(0, separator).trim()) ?: return false
-        val prefix = cidr.substring(separator + 1).trim().toIntOrNull() ?: return false
-        if (prefix !in 0..32) return false
-
+        val parsedCidr = parseIpv4Cidr(cidr) ?: return false
+        val network = parseIpv4(parsedCidr.address) ?: return false
         val address = parseIpv4(ip) ?: return false
-        val mask = if (prefix == 0) 0 else (-1 shl (32 - prefix))
+        val mask = if (parsedCidr.prefixLength == 0) 0 else (-1 shl (32 - parsedCidr.prefixLength))
         return (address and mask) == (network and mask)
     }
 
-    private fun parseIpv4(value: String): Int? {
+    fun parseIpv4Cidr(value: String): Ipv4Cidr? {
+        val cidr = value.trim()
+        val separator = cidr.indexOf('/')
+        if (separator <= 0 || separator == cidr.lastIndex) return null
+
+        val address = cidr.substring(0, separator).trim()
+        val prefix = cidr.substring(separator + 1).trim().toIntOrNull() ?: return null
+        if (prefix !in 0..32 || parseIpv4(address) == null) return null
+
+        return Ipv4Cidr(
+            value = "$address/$prefix",
+            address = address,
+            prefixLength = prefix
+        )
+    }
+
+    fun parseIpv4(value: String): Int? {
         val parts = value.trim().split('.')
         if (parts.size != 4) return null
 

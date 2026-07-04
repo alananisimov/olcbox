@@ -19,13 +19,15 @@ import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationMetadata
 import org.olcbox.app.data.model.SubscriptionMetadata
 import org.olcbox.app.data.repository.LocationsRepository
+import org.olcbox.app.data.routing.RoutingPolicyPlanner
 
 data class LocationItem(
     val storageId: String,
     val fullName: String,
     val config: LocationConfig? = null,
     val subscriptionUrl: String? = null,
-    val metadata: LocationMetadata? = null
+    val metadata: LocationMetadata? = null,
+    val routingSummary: String? = null
 )
 
 sealed class PingsState {
@@ -124,7 +126,10 @@ class LocationViewModel(
                     fullName = normalized.displayName(),
                     config = normalized,
                     subscriptionUrl = entry.subscriptionUrl,
-                    metadata = entry.metadata
+                    metadata = entry.metadata,
+                    routingSummary = RoutingPolicyPlanner.plan(entry.routing)
+                        .takeIf { it.hasPolicy }
+                        ?.summary()
                 )
             }
 

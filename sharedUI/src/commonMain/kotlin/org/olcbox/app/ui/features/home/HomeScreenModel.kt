@@ -15,6 +15,7 @@ import org.olcbox.app.data.exporter.LogExporter
 import org.olcbox.app.data.importer.ConfigImporter
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.repository.LocationsRepository
+import org.olcbox.app.data.routing.RoutingPolicyPlanner
 import org.olcbox.app.ui.features.locations.LocationItem
 import org.olcbox.app.vpn.VpnManager
 import org.olcbox.app.vpn.VpnStatus
@@ -95,7 +96,10 @@ class HomeScreenViewModel(
             fullName = normalized.displayName(),
             config = normalized,
             subscriptionUrl = active.subscriptionUrl,
-            metadata = active.metadata
+            metadata = active.metadata,
+            routingSummary = RoutingPolicyPlanner.plan(active.routing)
+                .takeIf { it.hasPolicy }
+                ?.summary()
         )
 
         _state.update {

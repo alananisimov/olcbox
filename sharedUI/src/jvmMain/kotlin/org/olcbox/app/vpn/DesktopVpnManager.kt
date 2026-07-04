@@ -18,6 +18,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.olcbox.app.data.model.LocationConfig
+import org.olcbox.app.data.routing.RoutingPolicyPlanner
+import org.olcbox.app.data.routing.RoutingPolicyRuntimePlan
 import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import org.olcbox.app.desktop.DesktopOs
@@ -186,6 +188,7 @@ class DesktopVpnManager private constructor(
 
         val active = locationsRepository.getActiveLocation()
         val location = active?.location?.normalized()
+        val routingPlan = RoutingPolicyPlanner.plan(active?.routing)
 
         if (location == null || !location.isComplete()) {
             setStatus(VpnStatus.Error("No active location"))
@@ -198,6 +201,7 @@ class DesktopVpnManager private constructor(
             val startupFailure = CompletableDeferred<String>()
             val desktopMode = DesktopMode.current()
             val socksSettings = _socksProxySettings.value.normalized()
+            logRoutingPlan(routingPlan, desktopMode)
 
             if (desktopMode == DesktopMode.WindowsTun) {
                 windowsTunController.ensureAdministratorOrRequestRestart()
@@ -226,7 +230,7 @@ class DesktopVpnManager private constructor(
             }
 
             when (desktopMode) {
-                DesktopMode.LinuxTun -> startLinuxTun(socksSettings.port, requestGeneration)
+                DesktopMode.LinuxTun -> startLinuxTun(socksSettings.port, routingPlan, requestGeneration)
                 DesktopMode.WindowsTun -> startWindowsTun(socksSettings.port, requestGeneration)
                 DesktopMode.SystemProxy -> startSystemProxy(socksSettings, requestGeneration)
             }
@@ -265,15 +269,38 @@ class DesktopVpnManager private constructor(
         }
     }
 
-    private suspend fun startLinuxTun(socksPort: Int, requestGeneration: Long) {
+    private suspend fun startLinuxTun(
+        socksPort: Int,
+        routingPlan: RoutingPolicyRuntimePlan,
+        requestGeneration: Long
+    ) {
         val hevBinary = DesktopNativeAssets.resolveHevSocks5TunnelBinary()
-        tunProcess = linuxTunController.start(hevBinary, socksPort)
+        tunProcess = linuxTunController.start(
+            hevBinary = hevBinary,
+            socksPort = socksPort,
+            bypassCidrs = routingPlan.bypassIpv4Cidrs
+        )
 
         if (requestGeneration != generation) {
             throw CancellationException("Desktop start superseded")
         }
 
         startTunLogReader(tunProcess ?: error("hev-socks5-tunnel process is missing"))
+    }
+
+    private fun logRoutingPlan(routingPlan: RoutingPolicyRuntimePlan, desktopMode: DesktopMode) {
+        if (!routingPlan.hasPolicy) return
+
+        addLog(routingPlan.summary())
+        if (routingPlan.hasResolverRules) {
+            addLog("Routing policy has domain/.dat rules; desktop TUN needs DNS resolver wiring before those can be enforced")
+        }
+        if (routingPlan.proxyIpv4Cidrs.isNotEmpty()) {
+            addLog("Routing policy has ${routingPlan.proxyIpv4Cidrs.size} proxy CIDR rule(s); current desktop modes keep proxy routes on the default path")
+        }
+        if (routingPlan.bypassIpv4Cidrs.isNotEmpty() && desktopMode != DesktopMode.LinuxTun) {
+            addLog("Routing policy bypass CIDR rules are currently enforced only in Linux TUN mode")
+        }
     }
 
     private suspend fun startWindowsTun(socksPort: Int, requestGeneration: Long) {

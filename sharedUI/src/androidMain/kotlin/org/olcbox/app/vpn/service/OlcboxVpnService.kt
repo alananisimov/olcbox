@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
+import android.net.IpPrefix
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -41,6 +42,8 @@ import org.olcbox.app.data.datasource.LocationsDataSourceImpl
 import org.olcbox.app.data.datasource.LocationsRepositoryImpl
 import org.olcbox.app.data.identity.PersistentDeviceIdentityProvider
 import org.olcbox.app.data.model.LocationConfig
+import org.olcbox.app.data.routing.RoutingPolicyPlanner
+import org.olcbox.app.data.routing.RoutingPolicyRuntimePlan
 import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.vpn.AndroidConnectionMode
 import org.olcbox.app.vpn.AndroidSocksProxySettings
@@ -436,6 +439,7 @@ class OlcboxVpnService : VpnService() {
 
                     val active = repository.getActiveLocation()
                     val location = active?.location?.normalized()
+                    val routingPlan = RoutingPolicyPlanner.plan(active?.routing)
                     if (location == null || !location.isComplete()) {
                         setStatus(VpnStatus.Error("No active location"))
                         updateNotification("Add a location first")
@@ -446,7 +450,7 @@ class OlcboxVpnService : VpnService() {
                     if (isMigration && !forceFullRestart && canReconnectTransportInPlace()) {
                         reconnectTransport(location, requestedGeneration)
                     } else {
-                        startFullTunnel(location, requestedGeneration, isMigration, isRestart)
+                        startFullTunnel(location, routingPlan, requestedGeneration, isMigration, isRestart)
                     }
                 }
             } finally {
@@ -491,6 +495,7 @@ class OlcboxVpnService : VpnService() {
 
     private suspend fun startFullTunnel(
         location: LocationConfig,
+        routingPlan: RoutingPolicyRuntimePlan,
         requestedGeneration: Long,
         isMigration: Boolean,
         isRestart: Boolean
@@ -544,7 +549,7 @@ class OlcboxVpnService : VpnService() {
         delay(TUNNEL_HANDOFF_DELAY_MS)
         coroutineContext.ensureActive()
 
-        val pfd = establishSystemVpnTunnel()
+        val pfd = establishSystemVpnTunnel(routingPlan)
         if (pfd == null) {
             stopMobileAndWait()
             return
@@ -699,17 +704,17 @@ class OlcboxVpnService : VpnService() {
         }
     }
 
-    private fun establishSystemVpnTunnel(): ParcelFileDescriptor? {
+    private fun establishSystemVpnTunnel(routingPlan: RoutingPolicyRuntimePlan): ParcelFileDescriptor? {
         return try {
             val builder = Builder()
                 .setSession("Olcbox VPN")
                 .setMtu(TUN_MTU)
                 .addAddress(TUN_IPV4_ADDRESS, IPV4_PREFIX_LENGTH)
-                .addRoute("0.0.0.0", 0)
                 .addDnsServer(MAPDNS_ADDRESS)
                 .setBlocking(true)
 
             if (!applySplitTunneling(builder)) return null
+            applyRoutingPolicyRoutes(builder, routingPlan)
 
             currentNetwork?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
             builder.establish()
@@ -718,6 +723,44 @@ class OlcboxVpnService : VpnService() {
             setStatus(VpnStatus.Error(e.message ?: "VPN establish failed"))
             updateNotification("VPN tunnel error")
             null
+        }
+    }
+
+    private fun applyRoutingPolicyRoutes(builder: Builder, routingPlan: RoutingPolicyRuntimePlan) {
+        builder.addRoute("0.0.0.0", 0)
+        if (!routingPlan.hasPolicy) return
+
+        addLog(routingPlan.summary())
+        if (routingPlan.hasResolverRules) {
+            addLog("Routing policy has domain/.dat rules; Android TUN needs DNS resolver wiring before those can be enforced")
+        }
+        if (routingPlan.proxyIpv4Cidrs.isNotEmpty()) {
+            addLog("Routing policy has ${routingPlan.proxyIpv4Cidrs.size} proxy CIDR rule(s); Android full-tunnel already proxies them")
+        }
+        if (routingPlan.bypassIpv4Cidrs.isEmpty()) return
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            addLog("Routing policy bypass CIDR rules require Android 13+ excludeRoute support")
+            return
+        }
+
+        var applied = 0
+        routingPlan.bypassIpv4Cidrs.forEach { cidr ->
+            val prefix = runCatching { IpPrefix("${cidr.address}/${cidr.prefixLength}") }.getOrNull()
+            if (prefix == null) {
+                addLog("Routing policy skipped invalid CIDR ${cidr.value}")
+                return@forEach
+            }
+            runCatching {
+                builder.excludeRoute(prefix)
+                applied += 1
+            }.onFailure {
+                addLog("Routing policy failed to bypass ${cidr.value}: ${it.message}")
+            }
+        }
+
+        if (applied > 0) {
+            addLog("Routing policy: bypassed $applied CIDR route(s) outside Android VPN")
         }
     }
 

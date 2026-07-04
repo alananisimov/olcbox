@@ -3,6 +3,7 @@ package org.olcbox.app.vpn.desktop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.olcbox.app.data.routing.Ipv4Cidr
 import org.olcbox.app.desktop.DesktopPaths
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,13 +15,16 @@ internal class LinuxTunController(
     private val addLog: (String) -> Unit
 ) {
     private var routesInstalled = false
+    private var activeBypassCidrs = emptyList<Ipv4Cidr>()
 
     suspend fun start(
         hevBinary: Path,
-        socksPort: Int = PacServer.LOCAL_SOCKS_PORT
+        socksPort: Int = PacServer.LOCAL_SOCKS_PORT,
+        bypassCidrs: List<Ipv4Cidr> = emptyList()
     ): Process {
-        val upScript = writeUpScript()
-        val downScript = writeDownScript()
+        activeBypassCidrs = bypassCidrs
+        val upScript = writeUpScript(bypassCidrs)
+        val downScript = writeDownScript(bypassCidrs)
         val config = writeConfig(socksPort, upScript, downScript)
         val process = startPrivilegedProcess(listOf(hevBinary.toString(), config.toString()))
         try {
@@ -30,6 +34,9 @@ internal class LinuxTunController(
             return process
         } catch (e: Exception) {
             stop(process)
+            runCatching { runPrivilegedScript(writeDownScript(activeBypassCidrs)) }
+                .onFailure { addLog("Linux TUN partial route cleanup failed: ${it.message}") }
+            activeBypassCidrs = emptyList()
             throw e
         }
     }
@@ -39,11 +46,10 @@ internal class LinuxTunController(
 
         if (routesInstalled) {
             waitForRoutesRemoved()
-            if (routeRuleExists()) {
-                runCatching { runPrivilegedScript(writeDownScript()) }
-                    .onFailure { addLog("Linux TUN route cleanup failed: ${it.message}") }
-            }
+            runCatching { runPrivilegedScript(writeDownScript(activeBypassCidrs)) }
+                .onFailure { addLog("Linux TUN route cleanup failed: ${it.message}") }
             routesInstalled = false
+            activeBypassCidrs = emptyList()
         }
     }
 
@@ -60,17 +66,17 @@ internal class LinuxTunController(
         return config
     }
 
-    private fun writeUpScript(): Path {
+    private fun writeUpScript(bypassCidrs: List<Ipv4Cidr>): Path {
         return writeScript(
             name = "linux-tun-up.sh",
-            body = upScriptContent()
+            body = upScriptContent(bypassCidrs)
         )
     }
 
-    private fun writeDownScript(): Path {
+    private fun writeDownScript(bypassCidrs: List<Ipv4Cidr>): Path {
         return writeScript(
             name = "linux-tun-down.sh",
-            body = downScriptContent()
+            body = downScriptContent(bypassCidrs)
         )
     }
 
@@ -177,6 +183,7 @@ internal class LinuxTunController(
         const val MAPDNS_NETMASK = "255.192.0.0"
         const val ROUTE_TABLE = "51820"
         const val ROOT_BYPASS_RULE_PREF = "10"
+        const val CIDR_BYPASS_RULE_PREF_BASE = 11
         const val TUN_RULE_PREF = "20"
         const val TUN_READY_TIMEOUT_MS = 10_000L
         const val TUN_READY_POLL_MS = 100L
@@ -227,7 +234,18 @@ internal class LinuxTunController(
             }.trimEnd()
         }
 
-        fun upScriptContent(): String {
+        fun upScriptContent(bypassCidrs: List<Ipv4Cidr> = emptyList()): String {
+            val bypassRuleLines = bypassCidrs
+                .take(MAX_BYPASS_CIDR_RULES)
+                .flatMapIndexed { index, cidr ->
+                    val pref = CIDR_BYPASS_RULE_PREF_BASE + index
+                    listOf(
+                        "ip rule del to ${cidr.value} lookup main pref $pref 2>/dev/null || true",
+                        "ip rule add to ${cidr.value} lookup main pref $pref"
+                    )
+                }
+                .joinToString("\n")
+
             return """
                 #!/bin/sh
                 set -eu
@@ -238,6 +256,7 @@ internal class LinuxTunController(
                 sysctl -w net.ipv4.conf.$TUN_NAME.rp_filter=0 >/dev/null 2>&1 || true
                 ip link set $TUN_NAME up
                 ip rule add uidrange 0-0 lookup main pref $ROOT_BYPASS_RULE_PREF
+$bypassRuleLines
                 ip route add default dev $TUN_NAME table $ROUTE_TABLE
                 ip rule add lookup $ROUTE_TABLE pref $TUN_RULE_PREF
                 if command -v resolvectl >/dev/null 2>&1; then
@@ -248,10 +267,19 @@ internal class LinuxTunController(
             """.trimIndent()
         }
 
-        fun downScriptContent(): String {
+        fun downScriptContent(bypassCidrs: List<Ipv4Cidr> = emptyList()): String {
+            val bypassRuleLines = bypassCidrs
+                .take(MAX_BYPASS_CIDR_RULES)
+                .mapIndexed { index, cidr ->
+                    val pref = CIDR_BYPASS_RULE_PREF_BASE + index
+                    "ip rule del to ${cidr.value} lookup main pref $pref 2>/dev/null || true"
+                }
+                .joinToString("\n")
+
             return """
                 #!/bin/sh
                 ip rule del uidrange 0-0 lookup main pref $ROOT_BYPASS_RULE_PREF 2>/dev/null || true
+$bypassRuleLines
                 ip rule del lookup $ROUTE_TABLE pref $TUN_RULE_PREF 2>/dev/null || true
                 ip route flush table $ROUTE_TABLE 2>/dev/null || true
                 if command -v resolvectl >/dev/null 2>&1; then
@@ -259,6 +287,8 @@ internal class LinuxTunController(
                 fi
             """.trimIndent()
         }
+
+        private const val MAX_BYPASS_CIDR_RULES = 64
     }
 }
 
