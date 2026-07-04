@@ -114,10 +114,12 @@ private class DesktopAppDependencies {
         deviceIdentityProvider = PersistentDeviceIdentityProvider(locationsDataSource)
     )
     val updateSettingsStore = JvmUpdateSettingsStore()
-    val updateInstaller = JvmUpdateInstaller()
     val socksProxySettingsStore = JvmDesktopSocksProxySettingsStore()
 
     val vpnManager = DesktopVpnManager(locationsRepository)
+    val updateInstaller = JvmUpdateInstaller {
+        vpnManager.subscriptionFetchProxy()
+    }
 
     val homeViewModel = HomeScreenViewModel(
         vpnManager = vpnManager,
@@ -171,7 +173,10 @@ fun main(args: Array<String>) = application {
             if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
 
             updateMessage = "Checking ${previousSettings.channel.name.lowercase()}..."
-            val result = dependencies.updateService.check(previousSettings.channel)
+            val result = dependencies.updateService.check(
+                previousSettings.channel,
+                dependencies.vpnManager.subscriptionFetchProxy()
+            )
             val checkedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
             val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
             saveUpdateSettings(checkedSettings)

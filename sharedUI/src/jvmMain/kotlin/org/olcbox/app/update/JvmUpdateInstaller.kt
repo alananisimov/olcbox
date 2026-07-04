@@ -2,9 +2,13 @@ package org.olcbox.app.update
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.olcbox.app.data.datasource.withProxyAuthentication
+import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import org.olcbox.app.desktop.DesktopPaths
 import java.awt.Desktop
+import java.net.InetSocketAddress
 import java.net.HttpURLConnection
+import java.net.Proxy
 import java.net.URI
 import java.net.URL
 import java.nio.file.Files
@@ -12,13 +16,17 @@ import java.nio.file.Path
 import kotlin.io.path.outputStream
 
 class JvmUpdateInstaller(
-    private val directory: Path = DesktopPaths.appDataDir().resolve("updates")
+    private val directory: Path = DesktopPaths.appDataDir().resolve("updates"),
+    private val proxyProvider: () -> SubscriptionFetchProxy? = { null }
 ) {
     suspend fun downloadAndOpen(
         asset: AppUpdateAsset,
         onProgress: (Float) -> Unit = {}
     ): Result<String> = runCatching {
-        val file = download(asset, onProgress)
+        val proxy = proxyProvider()
+        val file = withProxyAuthentication(proxy) {
+            download(asset, onProgress, proxy)
+        }
         val desktop = if (Desktop.isDesktopSupported()) Desktop.getDesktop() else null
         when {
             desktop?.isSupported(Desktop.Action.OPEN) == true -> desktop.open(file.toFile())
@@ -30,11 +38,18 @@ class JvmUpdateInstaller(
 
     private suspend fun download(
         asset: AppUpdateAsset,
-        onProgress: (Float) -> Unit
+        onProgress: (Float) -> Unit,
+        proxy: SubscriptionFetchProxy?
     ): Path = withContext(Dispatchers.IO) {
         Files.createDirectories(directory)
         val target = directory.resolve(asset.name.substringAfterLast('/').ifBlank { "olcbox-update" })
-        val connection = URL(asset.downloadUrl).openConnection() as HttpURLConnection
+        val connection = if (proxy == null) {
+            URL(asset.downloadUrl).openConnection()
+        } else {
+            URL(asset.downloadUrl).openConnection(
+                Proxy(Proxy.Type.SOCKS, InetSocketAddress(proxy.host, proxy.port))
+            )
+        } as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 60_000
         val total = connection.contentLengthLong.takeIf { it > 0L } ?: asset.sizeBytes ?: -1L

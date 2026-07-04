@@ -2,10 +2,12 @@ package org.olcbox.app.vpn.desktop
 
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.vpn.olcRtcNativeLibrarySpec
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class DesktopProxyModeTest {
@@ -60,7 +62,8 @@ class DesktopProxyModeTest {
                 binary = Path.of("/tmp/olcrtc"),
                 location = LocationConfig("Test", "room-$provider", "b".repeat(64), provider),
                 socksHost = "127.0.0.1",
-                socksPort = 10808
+                socksPort = 10808,
+                dnsServer = "127.0.0.53:53"
             )
             val args = command.args(Path.of("/tmp/client.yaml"))
             val yaml = command.yaml()
@@ -69,6 +72,7 @@ class DesktopProxyModeTest {
             assertContains(yaml, "mode: cnc")
             assertContains(yaml, "provider: '${OlcRtcCommand.desktopProviderArg(provider)}'")
             assertContains(yaml, "transport: '$expectedTransport'")
+            assertContains(yaml, "dns: '127.0.0.53:53'")
             assertContains(yaml, "id: 'room-$provider'")
             assertContains(yaml, "port: 10808")
             if (LocationConfig.normalizeProvider(provider) == LocationConfig.PROVIDER_JITSI) {
@@ -100,10 +104,12 @@ class DesktopProxyModeTest {
                 bypassProvider = LocationConfig.PROVIDER_WB_STREAM,
                 transport = LocationConfig.TRANSPORT_DATACHANNEL
             ),
+            dnsServer = "10.0.0.2:53",
             dataDir = Path.of("/tmp/olcbox-data")
         ).yaml()
 
         assertContains(command, "transport: '${LocationConfig.TRANSPORT_DATACHANNEL}'")
+        assertContains(command, "dns: '10.0.0.2:53'")
         assertTrue("vp8:" !in command)
         assertContains(command, "data: '/tmp/olcbox-data'")
     }
@@ -204,6 +210,22 @@ class DesktopProxyModeTest {
     }
 
     @Test
+    fun pacUrlValidationRejectsNonHttpAndUnsafeUrls() {
+        validatePacUrl("http://127.0.0.1:10809/proxy.pac")
+        validatePacUrl("https://example.test/proxy.pac")
+
+        assertFailsWith<IllegalArgumentException> {
+            validatePacUrl("file:///tmp/proxy.pac")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validatePacUrl("http://user:pass@example.test/proxy.pac")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validatePacUrl("http://example.test/proxy.pac#fragment")
+        }
+    }
+
+    @Test
     fun windowsProxyCommandsBackupShapeIsRestorable() {
         val enable = WindowsProxyController.enableCommands("http://127.0.0.1:10809/proxy.pac")
         assertEquals("reg", enable.first().first())
@@ -248,6 +270,28 @@ class DesktopProxyModeTest {
         assertContains(config, "udp: 'tcp'")
         assertContains(config, "mapdns:")
         assertContains(config, "network: 100.64.0.0")
+    }
+
+    @Test
+    fun desktopDnsResolverUsesFirstResolvableNameserver() {
+        val file = Files.createTempFile("olcbox-resolv", ".conf")
+        try {
+            Files.writeString(
+                file,
+                """
+                # generated
+                search lan
+                nameserver 127.0.0.53
+                nameserver 9.9.9.9
+                """.trimIndent()
+            )
+
+            assertEquals("127.0.0.53:53", DesktopDnsResolver.resolvConfDns(file))
+            assertEquals("9.9.9.9:5353", DesktopDnsResolver.normalizeDns("9.9.9.9:5353"))
+            assertEquals("[2001:4860:4860::8888]:53", DesktopDnsResolver.normalizeDns("2001:4860:4860::8888"))
+        } finally {
+            Files.deleteIfExists(file)
+        }
     }
 
     @Test

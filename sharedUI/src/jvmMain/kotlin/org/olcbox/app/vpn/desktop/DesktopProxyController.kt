@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.olcbox.app.desktop.DesktopOs
 import org.olcbox.app.desktop.DesktopPaths
+import java.net.URI
 
 internal interface DesktopProxyController {
     suspend fun enable(pacUrl: String)
@@ -39,6 +40,7 @@ internal class MacOsProxyController : DesktopProxyController {
     private var backup: List<MacOsAutoProxyState>? = null
 
     override suspend fun enable(pacUrl: String) {
+        validatePacUrl(pacUrl)
         val services = enabledNetworkServices()
         backup = services.map { service ->
             readAutoProxyState(service)
@@ -113,6 +115,7 @@ internal class WindowsProxyController : DesktopProxyController {
     private var backup: WindowsProxyState? = null
 
     override suspend fun enable(pacUrl: String) {
+        validatePacUrl(pacUrl)
         backup = readState()
         enableCommands(pacUrl).forEach { runCommand(it) }
         refreshProxySettings()
@@ -201,6 +204,15 @@ internal class WindowsProxyController : DesktopProxyController {
             return listOf("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
         }
     }
+}
+
+internal fun validatePacUrl(pacUrl: String) {
+    val uri = runCatching { URI(pacUrl.trim()) }
+        .getOrElse { throw IllegalArgumentException("Invalid PAC URL") }
+    require(uri.scheme == "http" || uri.scheme == "https") { "PAC URL must use http or https scheme" }
+    require(uri.host?.isNotBlank() == true) { "PAC URL must include a host" }
+    require(uri.userInfo == null) { "PAC URL must not include credentials" }
+    require(uri.fragment == null) { "PAC URL must not include a fragment" }
 }
 
 private suspend fun runCommand(command: List<String>): String = withContext(Dispatchers.IO) {

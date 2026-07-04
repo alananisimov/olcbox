@@ -10,6 +10,7 @@ internal data class OlcRtcCommand(
     val socksPort: Int = PacServer.LOCAL_SOCKS_PORT,
     val socksUser: String = "",
     val socksPass: String = "",
+    val dnsServer: String = DesktopDnsResolver.olcRtcDns(),
     val dataDir: Path? = null
 ) {
     fun args(configPath: Path): List<String> {
@@ -31,7 +32,7 @@ internal data class OlcRtcCommand(
             appendLine("  key: ${config.key.yamlValue()}")
             appendLine("net:")
             appendLine("  transport: ${config.transport.yamlValue()}")
-            appendLine("  dns: \"1.1.1.1:53\"")
+            appendLine("  dns: ${dnsServer.yamlValue()}")
             if (config.bypassProvider == LocationConfig.PROVIDER_JITSI) {
                 appendLine("tls:")
                 appendLine("  insecure_skip_verify: true")
