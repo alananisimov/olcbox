@@ -339,7 +339,8 @@ class LocationsRepositoryImpl(
                 storageId = normalizedId,
                 location = location,
                 subscriptionUrl = current?.subscriptionUrl,
-                metadata = current?.metadata
+                metadata = current?.metadata,
+                routing = current?.routing
             )
             val locations = bundle.locations
                 .filterNot { it.storageId == entry.storageId } + entry
