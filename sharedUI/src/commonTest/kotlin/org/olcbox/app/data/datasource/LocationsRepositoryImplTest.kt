@@ -11,6 +11,9 @@ import org.olcbox.app.data.identity.DeviceIdentityProvider
 import org.olcbox.app.data.model.LocationBundleV4
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationEntry
+import org.olcbox.app.data.model.RoutingRuleAction
+import org.olcbox.app.data.model.RoutingRuleType
+import org.olcbox.app.data.model.RoutingSplitTunnelMode
 import org.olcbox.app.data.share.ConfigShareService
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -367,6 +370,87 @@ class LocationsRepositoryImplTest {
         assertNotNull(imported)
         assertEquals(LocationConfig.TRANSPORT_VP8CHANNEL, imported.locations[0].location.transport)
         assertEquals(LocationConfig.TRANSPORT_DATACHANNEL, imported.locations[1].location.transport)
+    }
+
+    @Test
+    fun importsExportsAndPreservesSubscriptionRoutingPolicy() = runTest {
+        val source = FakeLocationsDataSource()
+        val input = """
+            {
+              "version": 5,
+              "active_location_id": "ru",
+              "locations": [
+                {
+                  "storage_id": "ru",
+                  "name": "RU",
+                  "endpoint": {
+                    "room_id": "room-ru",
+                    "key": "${"e".repeat(64)}"
+                  },
+                  "auth_provider": "wbstream",
+                  "transport": {
+                    "type": "vp8channel"
+                  },
+                  "routing": {
+                    "split_tunnel": "bypass_selected",
+                    "dat_lists": [
+                      {
+                        "name": "ru-sites",
+                        "url": "https://example.test/geosite.dat",
+                        "categories": ["geosite:ru", " geosite:vk ", "geosite:ru"],
+                        "action": "bypass"
+                      }
+                    ],
+                    "rules": [
+                      {
+                        "type": "domain_suffix",
+                        "value": "youtube.com",
+                        "action": "proxy"
+                      },
+                      {
+                        "type": "ip_cidr",
+                        "value": "10.0.0.0/8",
+                        "action": "bypass"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val repository = LocationsRepositoryImpl(source)
+        repository.importText(input)
+
+        val imported = source.stored
+        assertNotNull(imported)
+        val routing = imported.locations.single().routing
+        assertNotNull(routing)
+        assertEquals(RoutingSplitTunnelMode.BypassSelected, routing.splitTunnel)
+        assertEquals(listOf("geosite:ru", "geosite:vk"), routing.datLists.single().categories)
+        assertEquals(RoutingRuleAction.Bypass, routing.datLists.single().action)
+        assertEquals(RoutingRuleType.DomainSuffix, routing.rules[0].type)
+        assertEquals("youtube.com", routing.rules[0].value)
+        assertEquals(RoutingRuleType.IpCidr, routing.rules[1].type)
+
+        val exported = repository.exportBundle()
+        assertTrue("\"routing\"" in exported)
+        assertTrue("\"dat_lists\"" in exported)
+
+        repository.saveLocation(
+            storageId = "ru",
+            location = LocationConfig(
+                name = "RU updated",
+                id = "room-ru",
+                key = "f".repeat(64),
+                bypassProvider = LocationConfig.PROVIDER_WB_STREAM
+            )
+        )
+
+        val updatedRouting = source.stored?.locations?.single()?.routing
+        assertNotNull(updatedRouting)
+        assertEquals(RoutingSplitTunnelMode.BypassSelected, updatedRouting.splitTunnel)
+        assertEquals("https://example.test/geosite.dat", updatedRouting.datLists.single().url)
     }
 
     @Test

@@ -329,6 +329,106 @@ data class LocationMetadata(
 }
 
 @Serializable
+enum class RoutingSplitTunnelMode {
+    @SerialName("full_tunnel")
+    FullTunnel,
+
+    @SerialName("proxy_selected")
+    ProxySelected,
+
+    @SerialName("bypass_selected")
+    BypassSelected
+}
+
+@Serializable
+enum class RoutingRuleAction {
+    @SerialName("proxy")
+    Proxy,
+
+    @SerialName("bypass")
+    Bypass
+}
+
+@Serializable
+enum class RoutingRuleType {
+    @SerialName("domain")
+    Domain,
+
+    @SerialName("domain_suffix")
+    DomainSuffix,
+
+    @SerialName("ip_cidr")
+    IpCidr,
+
+    @SerialName("geosite")
+    GeoSite,
+
+    @SerialName("geoip")
+    GeoIp
+}
+
+@Serializable
+data class RoutingDatListConfig(
+    val name: String = "",
+    val url: String = "",
+    val categories: List<String> = emptyList(),
+    val action: RoutingRuleAction = RoutingRuleAction.Proxy
+) {
+    fun normalized(): RoutingDatListConfig {
+        return copy(
+            name = name.trim(),
+            url = url.trim(),
+            categories = categories.cleanedRoutingValues()
+        )
+    }
+
+    fun isEmpty(): Boolean {
+        return name.isBlank() && url.isBlank() && categories.isEmpty()
+    }
+}
+
+@Serializable
+data class RoutingRuleConfig(
+    val type: RoutingRuleType = RoutingRuleType.DomainSuffix,
+    val value: String = "",
+    val action: RoutingRuleAction = RoutingRuleAction.Proxy
+) {
+    fun normalized(): RoutingRuleConfig {
+        return copy(value = value.trim())
+    }
+
+    fun isEmpty(): Boolean = value.isBlank()
+}
+
+@Serializable
+data class RoutingPolicyConfig(
+    @SerialName("split_tunnel")
+    val splitTunnel: RoutingSplitTunnelMode = RoutingSplitTunnelMode.FullTunnel,
+    @SerialName("dat_lists")
+    val datLists: List<RoutingDatListConfig> = emptyList(),
+    val rules: List<RoutingRuleConfig> = emptyList()
+) {
+    fun normalized(): RoutingPolicyConfig {
+        return copy(
+            datLists = datLists
+                .map { it.normalized() }
+                .filterNot { it.isEmpty() }
+                .distinctBy { "${it.name}|${it.url}|${it.categories.joinToString(",")}|${it.action}" },
+            rules = rules
+                .map { it.normalized() }
+                .filterNot { it.isEmpty() }
+                .distinctBy { "${it.type}|${it.value}|${it.action}" }
+        )
+    }
+
+    fun isEmpty(): Boolean {
+        return splitTunnel == RoutingSplitTunnelMode.FullTunnel &&
+                datLists.isEmpty() &&
+                rules.isEmpty()
+    }
+}
+
+@Serializable
 data class LocationEntry(
     @SerialName("storage_id")
     val storageId: String,
@@ -342,6 +442,7 @@ data class LocationEntry(
     val legacyCarrier: String? = null,
     val transport: LocationTransportConfig? = null,
     val metadata: LocationMetadata? = null,
+    val routing: RoutingPolicyConfig? = null,
     @SerialName("subscriptionUrl")
     val legacySubscriptionUrl: String? = null,
     @SerialName("id")
@@ -418,6 +519,9 @@ data class LocationEntry(
             transport = LocationTransportConfig.from(config),
             metadata = metadata
                 ?.normalized()
+                ?.takeUnless { it.isEmpty() },
+            routing = routing
+                ?.normalized()
                 ?.takeUnless { it.isEmpty() }
         )
     }
@@ -427,7 +531,8 @@ data class LocationEntry(
             storageId: String,
             location: LocationConfig,
             subscriptionUrl: String? = null,
-            metadata: LocationMetadata? = null
+            metadata: LocationMetadata? = null,
+            routing: RoutingPolicyConfig? = null
         ): LocationEntry {
             val config = location.normalized()
             return LocationEntry(
@@ -440,7 +545,8 @@ data class LocationEntry(
                 ),
                 authProvider = config.bypassProvider,
                 transport = LocationTransportConfig.from(config),
-                metadata = metadata
+                metadata = metadata,
+                routing = routing
             ).normalized()
         }
 
@@ -452,6 +558,11 @@ data class LocationEntry(
 
 private fun String?.cleanMetadataValue(): String? {
     return this?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+private fun List<String>.cleanedRoutingValues(): List<String> {
+    return mapNotNull { value -> value.trim().takeIf { it.isNotEmpty() } }
+        .distinct()
 }
 
 @Serializable

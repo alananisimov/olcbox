@@ -73,7 +73,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: cyber-debug/olcrtc
+          repository: openlibrecommunity/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_ref }}
           path: olcrtc
           submodules: recursive
@@ -209,7 +209,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: cyber-debug/olcrtc
+          repository: openlibrecommunity/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_ref }}
           path: olcrtc
           submodules: recursive
@@ -262,7 +262,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: cyber-debug/olcrtc
+          repository: openlibrecommunity/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_ref }}
           path: olcrtc
           submodules: recursive
@@ -334,7 +334,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: cyber-debug/olcrtc
+          repository: openlibrecommunity/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_ref }}
           path: olcrtc
           submodules: recursive
@@ -458,7 +458,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: cyber-debug/olcrtc
+          repository: openlibrecommunity/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_ref }}
           path: olcrtc
           submodules: recursive
