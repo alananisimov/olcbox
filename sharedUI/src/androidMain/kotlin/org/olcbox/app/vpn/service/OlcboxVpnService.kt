@@ -65,6 +65,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.net.InetSocketAddress
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import kotlin.concurrent.thread
@@ -749,7 +750,9 @@ class OlcboxVpnService : VpnService() {
 
         var applied = 0
         routingPlan.bypassIpv4Cidrs.forEach { cidr ->
-            val prefix = runCatching { IpPrefix("${cidr.address}/${cidr.prefixLength}") }.getOrNull()
+            val prefix = runCatching {
+                IpPrefix(InetAddress.getByName(cidr.address), cidr.prefixLength)
+            }.getOrNull()
             if (prefix == null) {
                 addLog("Routing policy skipped invalid CIDR ${cidr.value}")
                 return@forEach

@@ -158,12 +158,12 @@ object RoutingPolicyPlanner {
             unsupportedRuleCount = unsupportedRules
         )
     }
+}
 
-    private fun RoutingSplitTunnelMode.serializedName(): String {
-        return when (this) {
-            RoutingSplitTunnelMode.FullTunnel -> "full_tunnel"
-            RoutingSplitTunnelMode.ProxySelected -> "proxy_selected"
-            RoutingSplitTunnelMode.BypassSelected -> "bypass_selected"
-        }
+private fun RoutingSplitTunnelMode.serializedName(): String {
+    return when (this) {
+        RoutingSplitTunnelMode.FullTunnel -> "full_tunnel"
+        RoutingSplitTunnelMode.ProxySelected -> "proxy_selected"
+        RoutingSplitTunnelMode.BypassSelected -> "bypass_selected"
     }
 }
