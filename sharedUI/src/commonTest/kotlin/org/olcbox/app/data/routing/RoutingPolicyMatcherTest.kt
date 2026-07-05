@@ -83,7 +83,7 @@ class RoutingPolicyMatcherTest {
                 ),
                 RoutingRuleConfig(
                     type = RoutingRuleType.GeoIp,
-                    value = "geoip:private",
+                    value = "geoip:ru",
                     action = RoutingRuleAction.Bypass
                 )
             )
