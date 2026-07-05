@@ -92,4 +92,22 @@ class RoutingPolicyMatcherTest {
         assertEquals(RoutingDecision.Proxy, RoutingPolicyMatcher.decide(policy, host = "youtube.com"))
         assertEquals(RoutingDecision.Proxy, RoutingPolicyMatcher.decide(policy, ip = "10.0.0.1"))
     }
+
+    @Test
+    fun matchesPrivateGeoIpRulesAsIpv4Cidrs() {
+        val policy = RoutingPolicyConfig(
+            splitTunnel = RoutingSplitTunnelMode.FullTunnel,
+            rules = listOf(
+                RoutingRuleConfig(
+                    type = RoutingRuleType.GeoIp,
+                    value = "geoip:private",
+                    action = RoutingRuleAction.Bypass
+                )
+            )
+        )
+
+        assertEquals(RoutingDecision.Bypass, RoutingPolicyMatcher.decide(policy, ip = "10.0.0.1"))
+        assertEquals(RoutingDecision.Bypass, RoutingPolicyMatcher.decide(policy, ip = "192.168.1.2"))
+        assertEquals(RoutingDecision.Proxy, RoutingPolicyMatcher.decide(policy, ip = "8.8.8.8"))
+    }
 }

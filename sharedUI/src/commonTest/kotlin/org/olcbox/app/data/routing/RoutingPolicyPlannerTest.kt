@@ -54,6 +54,11 @@ class RoutingPolicyPlannerTest {
                         action = RoutingRuleAction.Bypass
                     ),
                     RoutingRuleConfig(
+                        type = RoutingRuleType.GeoIp,
+                        value = "geoip:private",
+                        action = RoutingRuleAction.Bypass
+                    ),
+                    RoutingRuleConfig(
                         type = RoutingRuleType.IpCidr,
                         value = "not-a-cidr",
                         action = RoutingRuleAction.Bypass
@@ -65,10 +70,33 @@ class RoutingPolicyPlannerTest {
         assertTrue(plan.hasPolicy)
         assertTrue(plan.hasRouteLevelRules)
         assertTrue(plan.hasResolverRules)
+        assertTrue(plan.hasMapDnsRules)
         assertEquals(listOf("203.0.113.0/24"), plan.proxyIpv4Cidrs.map { it.value })
-        assertEquals(listOf("10.0.0.0/8"), plan.bypassIpv4Cidrs.map { it.value })
+        assertEquals(
+            listOf(
+                "10.0.0.0/8",
+                "0.0.0.0/8",
+                "100.64.0.0/10",
+                "127.0.0.0/8",
+                "169.254.0.0/16",
+                "172.16.0.0/12",
+                "192.0.0.0/24",
+                "192.0.2.0/24",
+                "192.168.0.0/16",
+                "198.18.0.0/15",
+                "198.51.100.0/24",
+                "203.0.113.0/24",
+                "224.0.0.0/4",
+                "240.0.0.0/4"
+            ),
+            plan.bypassIpv4Cidrs.map { it.value }
+        )
+        assertEquals(listOf("youtube.com"), plan.proxyDomainRules.map { it.value })
+        assertEquals(listOf("geosite:vk"), plan.bypassDomainRules.map { it.value })
+        assertEquals(listOf("geosite:ru", "geosite:youtube"), plan.proxyDatCategories)
+        assertEquals(emptyList(), plan.bypassDatCategories)
         assertEquals(1, plan.domainRuleCount)
-        assertEquals(1, plan.geoRuleCount)
+        assertEquals(2, plan.geoRuleCount)
         assertEquals(1, plan.datListCount)
         assertEquals(2, plan.datCategoryCount)
         assertEquals(1, plan.unsupportedRuleCount)

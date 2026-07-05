@@ -292,8 +292,11 @@ class DesktopVpnManager private constructor(
         if (!routingPlan.hasPolicy) return
 
         addLog(routingPlan.summary())
-        if (routingPlan.hasResolverRules) {
-            addLog("Routing policy has domain/.dat rules; desktop TUN needs DNS resolver wiring before those can be enforced")
+        if (routingPlan.hasMapDnsRules) {
+            addLog("Routing policy mapdns is enabled for domain/geosite/.dat hostname matching in TUN modes")
+            if (routingPlan.bypassDomainRules.isNotEmpty() || routingPlan.bypassDatCategories.isNotEmpty()) {
+                addLog("Routing policy domain bypass rules need native direct-route support; CIDR bypass rules are enforced in Linux TUN")
+            }
         }
         if (routingPlan.proxyIpv4Cidrs.isNotEmpty()) {
             addLog("Routing policy has ${routingPlan.proxyIpv4Cidrs.size} proxy CIDR rule(s); current desktop modes keep proxy routes on the default path")

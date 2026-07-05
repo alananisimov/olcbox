@@ -27,9 +27,17 @@ Supported schema:
 Current runtime support:
 
 - `ip_cidr` rules are parsed, normalized, tested, and included in runtime plans.
+- `geoip:private`, `geoip:lan`, and `geoip:local` are expanded into private/reserved IPv4 CIDR rules.
+- `domain`, `domain_suffix`, `geosite`, and `.dat` categories are separated into a resolver-level plan with their original `proxy` or `bypass` action preserved.
 - Android TUN applies bypass `ip_cidr` rules with `VpnService.Builder.excludeRoute` on Android 13+.
 - Linux TUN applies bypass `ip_cidr` rules with high-priority `ip rule to <cidr> lookup main` entries.
 - Windows TUN and system-proxy modes log routing policy state but do not enforce route exclusions yet.
-- `domain`, `domain_suffix`, `geosite`, `geoip`, and `.dat` list references are imported, preserved, summarized, and visible to runtime logs/UI.
+- Android TUN and Linux TUN enable `mapdns`, so DNS answers can be mapped back to hostnames before the SOCKS connection is made.
+- Hostname-based `proxy` rules can use the mapdns/SOCKS hostname path when traffic is already inside the TUN.
+- Hostname-based `bypass` rules still need native direct-route support. Android's `VpnService.Builder` can exclude static IP prefixes, but it cannot dynamically exclude a domain after DNS resolution.
 
-Domain and `.dat` rules need a DNS/mapdns resolver layer before they can be enforced reliably. TUN packet routing sees IP packets; it does not automatically know the original domain. The resolver layer must map DNS answers back to policy decisions before domain/geosite/geoip rules can safely affect routing.
+Limitations:
+
+- Country-wide `geoip` values such as `geoip:ru` need a real GeoIP database or generated CIDR bundle before they can become route-level rules.
+- `geosite` and external `.dat` list references are preserved in the runtime plan, but this PR does not download or parse third-party `.dat` files yet.
+- Apps that use encrypted DNS outside the VPN DNS path, such as DoH/DoT inside the app, may not hit mapdns and therefore may not expose the original domain to the routing layer.

@@ -731,8 +731,11 @@ class OlcboxVpnService : VpnService() {
         if (!routingPlan.hasPolicy) return
 
         addLog(routingPlan.summary())
-        if (routingPlan.hasResolverRules) {
-            addLog("Routing policy has domain/.dat rules; Android TUN needs DNS resolver wiring before those can be enforced")
+        if (routingPlan.hasMapDnsRules) {
+            addLog("Routing policy mapdns is enabled for domain/geosite/.dat hostname matching")
+            if (routingPlan.bypassDomainRules.isNotEmpty() || routingPlan.bypassDatCategories.isNotEmpty()) {
+                addLog("Routing policy domain bypass rules need native direct-route support; CIDR bypass rules are enforced below")
+            }
         }
         if (routingPlan.proxyIpv4Cidrs.isNotEmpty()) {
             addLog("Routing policy has ${routingPlan.proxyIpv4Cidrs.size} proxy CIDR rule(s); Android full-tunnel already proxies them")

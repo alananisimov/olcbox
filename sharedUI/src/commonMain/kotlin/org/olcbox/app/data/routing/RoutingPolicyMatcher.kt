@@ -12,12 +12,35 @@ data class Ipv4Cidr(
     val prefixLength: Int
 )
 
+data class DomainRoutingRule(
+    val type: RoutingRuleType,
+    val value: String,
+    val action: RoutingRuleAction
+)
+
 enum class RoutingDecision {
     Proxy,
     Bypass
 }
 
 object RoutingPolicyMatcher {
+    private val privateIpv4Cidrs = listOf(
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.0.0.0/24",
+        "192.0.2.0/24",
+        "192.168.0.0/16",
+        "198.18.0.0/15",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+        "224.0.0.0/4",
+        "240.0.0.0/4"
+    ).mapNotNull { parseIpv4Cidr(it) }
+
     fun decide(
         policy: RoutingPolicyConfig?,
         host: String? = null,
@@ -53,8 +76,39 @@ object RoutingPolicyMatcher {
             RoutingRuleType.Domain -> host != null && host == ruleValue.normalizedHost()
             RoutingRuleType.DomainSuffix -> host != null && host.matchesDomainSuffix(ruleValue)
             RoutingRuleType.IpCidr -> ip != null && ipv4InCidr(ip, ruleValue)
-            RoutingRuleType.GeoSite,
-            RoutingRuleType.GeoIp -> false
+            RoutingRuleType.GeoSite -> false
+            RoutingRuleType.GeoIp -> ip != null && geoIpCidrs(ruleValue).any { ipv4InCidr(ip, it.value) }
+        }
+    }
+
+    fun domainRules(policy: RoutingPolicyConfig?): List<DomainRoutingRule> {
+        val normalized = policy?.normalized() ?: return emptyList()
+        return normalized.rules.mapNotNull { rule ->
+            when (rule.type) {
+                RoutingRuleType.Domain,
+                RoutingRuleType.DomainSuffix,
+                RoutingRuleType.GeoSite -> DomainRoutingRule(
+                    type = rule.type,
+                    value = rule.value.trim(),
+                    action = rule.action
+                )
+
+                RoutingRuleType.IpCidr,
+                RoutingRuleType.GeoIp -> null
+            }
+        }
+    }
+
+    fun geoIpCidrs(value: String): List<Ipv4Cidr> {
+        return when (value.normalizedRuleToken()) {
+            "private",
+            "geoip:private",
+            "lan",
+            "geoip:lan",
+            "local",
+            "geoip:local" -> privateIpv4Cidrs
+
+            else -> emptyList()
         }
     }
 
@@ -106,5 +160,9 @@ object RoutingPolicyMatcher {
             result = (result shl 8) or octet
         }
         return result
+    }
+
+    private fun String.normalizedRuleToken(): String {
+        return trim().lowercase()
     }
 }
