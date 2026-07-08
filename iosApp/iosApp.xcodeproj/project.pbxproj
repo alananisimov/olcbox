@@ -10,7 +10,36 @@
 		9A0000010000000000000001 /* OlcboxIosApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A0000010000000000000011 /* OlcboxIosApp.swift */; };
 		9A0000010000000000000002 /* SwiftPlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A0000010000000000000012 /* SwiftPlatformBridge.swift */; };
 		9A0000010000000000000003 /* SwiftOlcRtcManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A0000010000000000000013 /* SwiftOlcRtcManager.swift */; };
+		AA0000010000000000000001 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000012 /* PacketTunnelProvider.swift */; };
+		AA0000010000000000000002 /* Socks5Tunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000013 /* Socks5Tunnel.swift */; };
+		AA0000010000000000000003 /* PacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000011 /* PacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA0000010000000000000004 /* HevSocks5Tunnel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000018 /* HevSocks5Tunnel.xcframework */; };
+		AA0000010000000000000005 /* OlcRtcMobile.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000019 /* OlcRtcMobile.xcframework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AA0000010000000000000021 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A0000010000000000000090 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000010000000000000050;
+			remoteInfo = PacketTunnel;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AA0000010000000000000031 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AA0000010000000000000003 /* PacketTunnel.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		9A0000010000000000000010 /* iosApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -18,6 +47,15 @@
 		9A0000010000000000000012 /* SwiftPlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftPlatformBridge.swift; sourceTree = "<group>"; };
 		9A0000010000000000000013 /* SwiftOlcRtcManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftOlcRtcManager.swift; sourceTree = "<group>"; };
 		9A0000010000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000010000000000000011 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000010000000000000012 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		AA0000010000000000000013 /* Socks5Tunnel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Socks5Tunnel.swift; sourceTree = "<group>"; };
+		AA0000010000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000010000000000000015 /* PacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PacketTunnel.entitlements; sourceTree = "<group>"; };
+		AA0000010000000000000016 /* Tun2SocksSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Tun2SocksSupport.h; sourceTree = "<group>"; };
+		AA0000010000000000000017 /* iosApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iosApp.entitlements; sourceTree = "<group>"; };
+		AA0000010000000000000018 /* HevSocks5Tunnel.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Vendor/HevSocks5Tunnel.xcframework; sourceTree = SOURCE_ROOT; };
+		AA0000010000000000000019 /* OlcRtcMobile.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = ../sharedUI/build/generated/olcrtc/ios/OlcRtcMobile.xcframework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -28,6 +66,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000010000000000000033 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000010000000000000004 /* HevSocks5Tunnel.xcframework in Frameworks */,
+				AA0000010000000000000005 /* OlcRtcMobile.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -35,6 +82,7 @@
 			isa = PBXGroup;
 			children = (
 				9A0000010000000000000031 /* iosApp */,
+				AA0000010000000000000041 /* PacketTunnel */,
 				9A0000010000000000000032 /* Frameworks */,
 				9A0000010000000000000033 /* Products */,
 			);
@@ -47,6 +95,7 @@
 				9A0000010000000000000012 /* SwiftPlatformBridge.swift */,
 				9A0000010000000000000013 /* SwiftOlcRtcManager.swift */,
 				9A0000010000000000000014 /* Info.plist */,
+				AA0000010000000000000017 /* iosApp.entitlements */,
 			);
 			path = iosApp;
 			sourceTree = "<group>";
@@ -54,6 +103,8 @@
 		9A0000010000000000000032 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				AA0000010000000000000018 /* HevSocks5Tunnel.xcframework */,
+				AA0000010000000000000019 /* OlcRtcMobile.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -62,8 +113,21 @@
 			isa = PBXGroup;
 			children = (
 				9A0000010000000000000010 /* iosApp.app */,
+				AA0000010000000000000011 /* PacketTunnel.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		AA0000010000000000000041 /* PacketTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000010000000000000012 /* PacketTunnelProvider.swift */,
+				AA0000010000000000000013 /* Socks5Tunnel.swift */,
+				AA0000010000000000000014 /* Info.plist */,
+				AA0000010000000000000015 /* PacketTunnel.entitlements */,
+				AA0000010000000000000016 /* Tun2SocksSupport.h */,
+			);
+			path = PacketTunnel;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -77,15 +141,34 @@
 				9A0000010000000000000060 /* Sources */,
 				9A0000010000000000000020 /* Frameworks */,
 				9A0000010000000000000070 /* Resources */,
+				AA0000010000000000000031 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AA0000010000000000000070 /* PBXTargetDependency */,
 			);
 			name = iosApp;
 			productName = iosApp;
 			productReference = 9A0000010000000000000010 /* iosApp.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AA0000010000000000000050 /* PacketTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0000010000000000000062 /* Build configuration list for PBXNativeTarget "PacketTunnel" */;
+			buildPhases = (
+				AA0000010000000000000051 /* Build olcRTC Framework */,
+				AA0000010000000000000052 /* Sources */,
+				AA0000010000000000000033 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PacketTunnel;
+			productName = PacketTunnel;
+			productReference = AA0000010000000000000011 /* PacketTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -98,6 +181,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					9A0000010000000000000040 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					AA0000010000000000000050 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -116,6 +202,7 @@
 			projectRoot = "";
 			targets = (
 				9A0000010000000000000040 /* iosApp */,
+				AA0000010000000000000050 /* PacketTunnel */,
 			);
 		};
 /* End PBXProject section */
@@ -144,7 +231,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nexport PATH=\"$HOME/go/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nif [ -z \"$ARCHS\" ] || [ \"$ARCHS\" = \"undefined_arch\" ]; then\n  export ARCHS=arm64\nfi\nGRADLE_VERSION_ARGS=\"\"\nif [ -n \"$OLCBOX_VERSION\" ]; then\n  GRADLE_VERSION_ARGS=\"-Polcbox.version=$OLCBOX_VERSION\"\nfi\ncd \"$SRCROOT/..\"\n./gradlew $GRADLE_VERSION_ARGS :sharedUI:buildOlcrtcIosXcframework :sharedUI:embedAndSignAppleFrameworkForXcode --no-configuration-cache\n";
+			shellScript = "set -e\nexport PATH=\"$HOME/go/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nexport GRADLE_USER_HOME=\"$SRCROOT/../build/gradle-vpn\"\nif [ -z \"$ARCHS\" ] || [ \"$ARCHS\" = \"undefined_arch\" ]; then\n  export ARCHS=arm64\nfi\nGRADLE_VERSION_ARGS=\"\"\nif [ -n \"$OLCBOX_VERSION\" ]; then\n  GRADLE_VERSION_ARGS=\"-Polcbox.version=$OLCBOX_VERSION\"\nfi\ncd \"$SRCROOT/..\"\n./gradlew $GRADLE_VERSION_ARGS :sharedUI:buildOlcrtcIosXcframework :sharedUI:embedAndSignAppleFrameworkForXcode --no-configuration-cache\n";
+		};
+		AA0000010000000000000051 /* Build olcRTC Framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build olcRTC Framework";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nFRAMEWORK=\"$SRCROOT/../sharedUI/build/generated/olcrtc/ios/OlcRtcMobile.xcframework\"\nif [ ! -d \"$FRAMEWORK\" ]; then\n  export PATH=\"$HOME/go/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\n  export GRADLE_USER_HOME=\"$SRCROOT/../build/gradle-vpn\"\n  cd \"$SRCROOT/..\"\n  ./gradlew :sharedUI:buildOlcrtcIosXcframework --no-configuration-cache\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -159,7 +261,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000010000000000000052 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000010000000000000001 /* PacketTunnelProvider.swift in Sources */,
+				AA0000010000000000000002 /* Socks5Tunnel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA0000010000000000000070 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA0000010000000000000050 /* PacketTunnel */;
+			targetProxy = AA0000010000000000000021 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		9A00000100000000000000A0 /* Debug */ = {
@@ -220,7 +339,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
-				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_ENTITLEMENTS = iosApp/iosApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -267,7 +386,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
-				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_ENTITLEMENTS = iosApp/iosApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -309,6 +428,60 @@
 			};
 			name = Release;
 		};
+		AA0000010000000000000060 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../sharedUI/build/generated/olcrtc/ios/OlcRtcMobile.xcframework/ios-arm64",
+					"$(SRCROOT)/Vendor/HevSocks5Tunnel.xcframework/ios-arm64",
+				);
+				INFOPLIST_FILE = PacketTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = "$(inherited) -lresolv";
+				PRODUCT_BUNDLE_IDENTIFIER = org.olcbox.app.ios.PacketTunnel;
+				PRODUCT_NAME = PacketTunnel;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = PacketTunnel/Tun2SocksSupport.h;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA0000010000000000000061 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../sharedUI/build/generated/olcrtc/ios/OlcRtcMobile.xcframework/ios-arm64",
+					"$(SRCROOT)/Vendor/HevSocks5Tunnel.xcframework/ios-arm64",
+				);
+				INFOPLIST_FILE = PacketTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = "$(inherited) -lresolv";
+				PRODUCT_BUNDLE_IDENTIFIER = org.olcbox.app.ios.PacketTunnel;
+				PRODUCT_NAME = PacketTunnel;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = PacketTunnel/Tun2SocksSupport.h;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -326,6 +499,15 @@
 			buildConfigurations = (
 				9A00000100000000000000A0 /* Debug */,
 				9A00000100000000000000A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AA0000010000000000000062 /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000010000000000000060 /* Debug */,
+				AA0000010000000000000061 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

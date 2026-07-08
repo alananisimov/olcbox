@@ -1,6 +1,7 @@
 import Darwin
 import AVFoundation
 import Foundation
+import NetworkExtension
 import OlcRtcMobile
 import SharedUI
 import UIKit
@@ -9,6 +10,7 @@ final class SwiftOlcRtcManager: NSObject, @unchecked Sendable, IosOlcRtcBridge {
     private var logWriter: IosLogWriter?
     private var mobileLogWriter: MobileLogWriterAdapter?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var activeMode: ConnectionMode = .stopped
     private let lock = NSLock()
     private let keepAlive = SilentAudioKeepAlive()
 
@@ -31,46 +33,105 @@ final class SwiftOlcRtcManager: NSObject, @unchecked Sendable, IosOlcRtcBridge {
         lock.lock()
         defer { lock.unlock() }
 
+        // A Packet Tunnel extension can only be used when both the app and the
+        // extension were signed by a profile containing the Network Extension
+        // entitlement. Sideloaded/free-profile builds intentionally omit it.
+        // Try the system VPN first, then preserve the original local SOCKS mode.
+        if hasEmbeddedPacketTunnel {
+            do {
+                try startSystemTunnel(request: request)
+                activeMode = .systemVPN
+                logWriter?.writeLog(message: "iOS system VPN connected")
+                return IosBridgeResult(success: true, message: nil)
+            } catch {
+                logWriter?.writeLog(message: "System VPN unavailable; using local SOCKS proxy (\(error.localizedDescription))")
+            }
+        } else {
+            logWriter?.writeLog(message: "Packet Tunnel is not included in this build; using local SOCKS proxy")
+        }
+
+        return startLocalProxy(request: request)
+    }
+
+    private func startSystemTunnel(request: IosOlcRtcStartRequest) throws {
+        do {
+            let manager = try loadOrCreateTunnelManager()
+            let tunnelProtocol = NETunnelProviderProtocol()
+            tunnelProtocol.providerBundleIdentifier = Self.tunnelBundleIdentifier
+            tunnelProtocol.serverAddress = "Olcbox"
+            tunnelProtocol.providerConfiguration = [
+                "carrierName": request.carrierName as NSString,
+                "transport": request.transportName as NSString,
+                "roomId": request.roomId as NSString,
+                "clientId": request.clientId as NSString,
+                "keyHex": request.keyHex as NSString,
+                "socksPort": NSNumber(value: request.socksPort),
+                "socksUser": request.socksUser as NSString,
+                "socksPass": request.socksPass as NSString,
+                "vp8Fps": NSNumber(value: request.vp8Fps),
+                "vp8BatchSize": NSNumber(value: request.vp8BatchSize),
+                "mtu": NSNumber(value: 1500)
+            ]
+            manager.localizedDescription = Self.tunnelDescription
+            manager.protocolConfiguration = tunnelProtocol
+            manager.isEnabled = true
+            try save(manager)
+            try load(manager)
+
+            // On the first installation iOS creates the preference entry only
+            // after showing the VPN permission sheet. Reload the manager list so
+            // startTunnel uses the persisted session rather than the temporary
+            // pre-save object, whose connection commonly remains `.invalid`.
+            var persistedManager = try loadOrCreateTunnelManager()
+            do {
+                try startAndWait(persistedManager)
+            } catch SystemTunnelError.connectionFailed {
+                // The first connection can race the preference daemon even after
+                // save/load completed. One fresh reload/retry makes the initial
+                // tap behave like the second tap without requiring an app restart.
+                Thread.sleep(forTimeInterval: 0.75)
+                persistedManager = try loadOrCreateTunnelManager()
+                if persistedManager.connection.status != .connected {
+                    try startAndWait(persistedManager)
+                }
+            }
+        } catch {
+            // Do not leave a half-started VPN around before starting the SOCKS
+            // fallback in the containing application.
+            if let manager = try? loadOrCreateTunnelManager() {
+                manager.connection.stopVPNTunnel()
+            }
+            throw error
+        }
+    }
+
+    private func startLocalProxy(request: IosOlcRtcStartRequest) -> IosBridgeResult {
         MobileSetProviders()
         MobileSetTransport(request.transportName)
         MobileSetDNS("1.1.1.1:53")
         MobileSetVP8Options(Int(request.vp8Fps), Int(request.vp8BatchSize))
 
-        if MobileIsRunning() {
-            MobileStop()
-        }
+        if MobileIsRunning() { MobileStop() }
 
         var error: NSError?
-        let started = MobileStartWithTransport(
-            request.carrierName,
-            request.transportName,
-            request.roomId,
-            request.clientId,
-            request.keyHex,
-            Int(request.socksPort),
-            request.socksUser,
-            request.socksPass,
-            &error
-        )
-        guard started else {
+        guard MobileStartWithTransport(
+            request.carrierName, request.transportName, request.roomId,
+            request.clientId, request.keyHex, Int(request.socksPort),
+            request.socksUser, request.socksPass, &error
+        ) else {
+            activeMode = .stopped
             return IosBridgeResult(success: false, message: error?.localizedDescription ?? "olcRTC start failed")
         }
 
-        let ready = MobileWaitReady(8_000, &error)
-        guard ready else {
+        guard MobileWaitReady(8_000, &error) else {
             MobileStop()
+            activeMode = .stopped
             endBackgroundTaskIfNeeded()
             keepAlive.stop(log: makeLogger())
             return IosBridgeResult(success: false, message: error?.localizedDescription ?? "olcRTC start timed out")
         }
 
-        // Real background survival: the `audio` UIBackgroundMode only keeps the app
-        // alive while it is *actually producing audio*. Activating an AVAudioSession
-        // without output (the previous behaviour) let iOS suspend the process after
-        // the beginBackgroundTask grace period (~30s), which froze the Go runtime and
-        // killed the SOCKS/WebRTC transport. Playing a continuous (inaudible) buffer
-        // keeps the audio route active, so the SOCKS proxy keeps running in the
-        // background until the user stops it.
+        activeMode = .localProxy
         keepAlive.start(log: makeLogger())
         beginBackgroundTaskIfNeeded()
         return IosBridgeResult(success: true, message: nil)
@@ -79,16 +140,104 @@ final class SwiftOlcRtcManager: NSObject, @unchecked Sendable, IosOlcRtcBridge {
     func stop() {
         lock.lock()
         defer { lock.unlock() }
-        MobileStop()
-        endBackgroundTaskIfNeeded()
-        keepAlive.stop(log: makeLogger())
+        if activeMode == .systemVPN, let manager = try? loadOrCreateTunnelManager() {
+            manager.connection.stopVPNTunnel()
+        }
+        if activeMode == .localProxy || MobileIsRunning() {
+            MobileStop()
+            endBackgroundTaskIfNeeded()
+            keepAlive.stop(log: makeLogger())
+        }
+        activeMode = .stopped
     }
 
     func isRunning() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return MobileIsRunning()
+        switch activeMode {
+        case .systemVPN:
+            guard let manager = try? loadOrCreateTunnelManager() else { return false }
+            return manager.connection.status == .connected || manager.connection.status == .connecting || manager.connection.status == .reasserting
+        case .localProxy:
+            return MobileIsRunning()
+        case .stopped:
+            return false
+        }
     }
+
+    private var hasEmbeddedPacketTunnel: Bool {
+        guard let url = Bundle.main.builtInPlugInsURL?
+            .appendingPathComponent("PacketTunnel.appex") else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func loadOrCreateTunnelManager() throws -> NETunnelProviderManager {
+        let box = SynchronousResult<[NETunnelProviderManager]>()
+        let semaphore = DispatchSemaphore(value: 0)
+        NETunnelProviderManager.loadAllFromPreferences { managers, error in
+            box.result = error.map(Result.failure) ?? .success(managers ?? [])
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + 10) == .success else { throw SystemTunnelError.operationTimedOut }
+        let managers = try box.result?.get() ?? []
+        let manager = managers.first(where: { $0.localizedDescription == Self.tunnelDescription }) ?? NETunnelProviderManager()
+        if managers.contains(where: { $0 === manager }) { try load(manager) }
+        return manager
+    }
+
+    private func save(_ manager: NETunnelProviderManager) throws {
+        try waitForPreferenceOperation { completion in manager.saveToPreferences(completionHandler: completion) }
+    }
+
+    private func load(_ manager: NETunnelProviderManager) throws {
+        try waitForPreferenceOperation { completion in manager.loadFromPreferences(completionHandler: completion) }
+    }
+
+    private func waitForPreferenceOperation(_ operation: (@escaping (Error?) -> Void) -> Void) throws {
+        let box = SynchronousResult<Void>()
+        let semaphore = DispatchSemaphore(value: 0)
+        operation { error in
+            box.result = error.map(Result.failure) ?? .success(())
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + 10) == .success else { throw SystemTunnelError.operationTimedOut }
+        try box.result?.get()
+    }
+
+    private func waitUntilConnected(_ session: NETunnelProviderSession) throws {
+        let started = Date()
+        while Date().timeIntervalSince(started) < 30 {
+            let elapsed = Date().timeIntervalSince(started)
+            switch session.status {
+            case .connected: return
+            // A newly saved NETunnelProviderManager briefly reports invalid or
+            // disconnected while neagent publishes the configuration. Treat it
+            // as a startup state for a few seconds instead of immediately
+            // stopping the tunnel and falling back to SOCKS.
+            case .invalid where elapsed < 4,
+                 .disconnected where elapsed < 4:
+                Thread.sleep(forTimeInterval: 0.25)
+            case .invalid, .disconnected:
+                throw SystemTunnelError.connectionFailed
+            default: Thread.sleep(forTimeInterval: 0.25)
+            }
+        }
+        session.stopTunnel()
+        throw SystemTunnelError.operationTimedOut
+    }
+
+    private func startAndWait(_ manager: NETunnelProviderManager) throws {
+        guard let session = manager.connection as? NETunnelProviderSession else {
+            throw SystemTunnelError.sessionUnavailable
+        }
+        if session.status != .connected && session.status != .connecting && session.status != .reasserting {
+            try session.startTunnel(options: [:])
+        }
+        try waitUntilConnected(session)
+    }
+
+    private static let tunnelDescription = "Olcbox VPN"
+    private static let tunnelBundleIdentifier = "org.olcbox.app.ios.PacketTunnel"
 
     func ping(request: IosOlcRtcCheckRequest) -> IosLongResult {
         let port = allocateLocalPort()
@@ -234,6 +383,30 @@ final class SwiftOlcRtcManager: NSObject, @unchecked Sendable, IosOlcRtcBridge {
             guard task != .invalid else { return }
             UIApplication.shared.endBackgroundTask(task)
             writer?.writeLog(message: "iOS background task ended")
+        }
+    }
+}
+
+private final class SynchronousResult<Value>: @unchecked Sendable {
+    var result: Result<Value, Error>?
+}
+
+private enum ConnectionMode {
+    case stopped
+    case systemVPN
+    case localProxy
+}
+
+private enum SystemTunnelError: LocalizedError {
+    case sessionUnavailable
+    case operationTimedOut
+    case connectionFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .sessionUnavailable: return "System VPN session is unavailable"
+        case .operationTimedOut: return "System VPN operation timed out"
+        case .connectionFailed: return "System VPN failed to connect"
         }
     }
 }
