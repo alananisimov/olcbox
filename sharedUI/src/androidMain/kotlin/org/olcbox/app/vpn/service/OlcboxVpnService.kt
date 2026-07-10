@@ -586,7 +586,7 @@ class OlcboxVpnService : VpnService() {
             }
             waitForJitsiRoomCleanup(config.bypassProvider)
             bindProcessToNetwork(upstream, "Bound to ${getNetName(upstream)}")
-            configureMobileTransport(config)
+            configureMobileTransport(config, upstream)
             addLog(
                 "Starting olcRTC provider=${config.bypassProvider}, " +
                     "transport=${config.transport}, room=${config.id}"
@@ -655,13 +655,25 @@ class OlcboxVpnService : VpnService() {
         delay(waitMs)
     }
 
-    private fun configureMobileTransport(location: LocationConfig) {
+    private fun configureMobileTransport(location: LocationConfig, upstream: Network) {
         val config = location.normalized()
         Mobile.setProviders()
         Mobile.setTransport(config.transport)
-        Mobile.setDNS("1.1.1.1:53")
+        Mobile.setDNS("${readUpstreamDns(upstream)}:53")
         Mobile.setSocksListenHost(socksListenHost)
         Mobile.setVP8Options(config.vp8Fps.toLong(), config.vp8Batch.toLong())
+    }
+
+    private fun readUpstreamDns(network: Network): String {
+        return try {
+            connectivityManager.getLinkProperties(network)
+                ?.dnsServers
+                ?.firstOrNull { !it.isLoopbackAddress }
+                ?.hostAddress
+                ?: "1.1.1.1"
+        } catch (e: Exception) {
+            "1.1.1.1"
+        }
     }
 
     private fun startTun2socks(pfd: ParcelFileDescriptor): Boolean {

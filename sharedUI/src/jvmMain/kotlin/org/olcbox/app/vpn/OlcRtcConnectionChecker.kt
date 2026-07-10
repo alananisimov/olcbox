@@ -392,7 +392,7 @@ internal object OlcRtcConnectionChecker {
     private const val CONNECTION_CHECK_ATTEMPTS = 2
     private const val HTTP_PING_ATTEMPTS = 1
 
-    private const val OLC_READY_TIMEOUT_MS = 8_000L
+    private const val OLC_READY_TIMEOUT_MS = 25_000L
     private const val READY_POLL_INTERVAL_MS = 100L
     private const val TCP_CONNECT_TIMEOUT_MS = 250L
 
