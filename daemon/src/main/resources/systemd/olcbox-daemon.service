@@ -1,0 +1,14 @@
+[Unit]
+Description=olcbox VPN daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/olcbox-daemon/bin/daemon
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=olcbox-daemon
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

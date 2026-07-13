@@ -64,15 +64,6 @@ internal object DesktopNativeAssets {
         return target
     }
 
-    fun resolveHevSocks5TunnelBinary(): Path {
-        val fileName = hevSocks5TunnelFileName()
-        return resolveBinary(
-            fileName = fileName,
-            resourceName = "native/$fileName",
-            candidates = hevSocks5TunnelSourceCandidates(fileName)
-        )
-    }
-
     fun resolveWindowsTun2SocksBinary(): Path {
         val fileName = windowsTun2SocksFileName()
         val binary = resolveBinary(
@@ -129,13 +120,6 @@ internal object DesktopNativeAssets {
         error("Bundled olcRTC data file is missing: $resourceName")
     }
 
-    fun hevSocks5TunnelFileName(): String {
-        return when (DesktopPaths.os) {
-            DesktopOs.Linux -> "hev-socks5-tunnel-linux-${desktopArch()}"
-            else -> error("hev-socks5-tunnel desktop binary is only used for TUN mode")
-        }
-    }
-
     fun windowsTun2SocksFileName(): String {
         return when (DesktopPaths.os) {
             DesktopOs.Windows -> "tun2socks-windows-amd64.exe"
@@ -181,22 +165,6 @@ internal object DesktopNativeAssets {
             repo.resolve(fileName.removeSuffix(".exe")),
             repo.resolve("olcrtc")
         )
-    }
-
-    private fun hevSocks5TunnelSourceCandidates(fileName: String): List<Path> {
-        val explicitBinary = System.getenv("HEV_SOCKS5_TUNNEL_BINARY")?.takeIf { it.isNotBlank() }?.let { Path(it) }
-        return listOfNotNull(explicitBinary) + projectRootCandidates().flatMap { root ->
-            val sourceBin = root.resolve("androidApp").resolve("src").resolve("main")
-                .resolve("jni").resolve("hev-socks5-tunnel").resolve("bin")
-            listOf(
-                root.resolve("desktopApp").resolve("build").resolve("generated")
-                    .resolve("desktopNativeResources").resolve("native").resolve(fileName),
-                root.resolve("build").resolve("generated").resolve("desktopNativeResources")
-                    .resolve("native").resolve(fileName),
-                sourceBin.resolve("hev-socks5-tunnel.exe"),
-                sourceBin.resolve("hev-socks5-tunnel")
-            )
-        }.distinct()
     }
 
     private fun windowsTun2SocksSourceCandidates(fileName: String): List<Path> {

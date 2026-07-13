@@ -196,7 +196,7 @@ internal class WindowsTunController(
         const val TUN_MTU = 1500
         const val TUN_IPV4_ADDRESS = "10.0.88.88"
         const val TUN_IPV4_PREFIX_LENGTH = 24
-        const val MAPDNS_ADDRESS = "1.1.1.1"
+        const val MAPDNS_ADDRESS = "198.18.0.2"
         const val TUN_READY_TIMEOUT_MS = 10_000L
         const val TUN_READY_POLL_MS = 100L
         const val PROCESS_STOP_TIMEOUT_MS = 3_000L

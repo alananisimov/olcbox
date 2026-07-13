@@ -24,10 +24,14 @@ plugins {
 
 dependencies {
     implementation(project(":sharedUI"))
+    implementation(compose.materialIconsExtended)
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.jna)
     implementation(libs.zxing.core)
+    implementation(libs.compose.native.tray)
+    implementation(libs.nucleus.linux.hidpi)
+    implementation(libs.slf4j.simple)
 }
 
 abstract class DownloadFileTask : DefaultTask() {

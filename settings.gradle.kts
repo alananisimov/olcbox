@@ -25,4 +25,6 @@ include(":sharedUI")
 include(":sharedUI:olcrtc-bin")
 include(":androidApp")
 include(":desktopApp")
+include(":daemonIpc")
+include(":daemon")
 

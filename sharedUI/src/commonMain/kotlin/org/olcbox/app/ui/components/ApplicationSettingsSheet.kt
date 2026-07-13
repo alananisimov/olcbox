@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Key
@@ -78,6 +79,13 @@ import org.olcbox.app.update.AppUpdateInfo
 import org.olcbox.app.update.AppUpdateSettings
 import kotlin.time.Instant
 
+data class SharedConnectionModeOption(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector
+)
+
 data class ApplicationSocksProxySettings(
     val host: String = "127.0.0.1",
     val port: Int = DEFAULT_PORT,
@@ -105,6 +113,10 @@ fun ApplicationSettingsSheet(
     logs: List<String>,
     connectionSummary: String,
     connectionDetails: List<Pair<String, String>>,
+    connectionModeSummary: String = "Proxy · Local SOCKS5",
+    connectionModeOptions: List<SharedConnectionModeOption> = emptyList(),
+    selectedConnectionModeId: String = "",
+    onConnectionModeSelected: (String) -> Unit = {},
     socksProxySettings: ApplicationSocksProxySettings? = null,
     isConnectionActive: Boolean = false,
     onDismiss: () -> Unit,
@@ -171,6 +183,7 @@ fun ApplicationSettingsSheet(
                 SharedSettingsRoute.Connection -> SharedConnectionSettingsContent(
                     summary = connectionSummary,
                     details = connectionDetails,
+                    connectionModeSummary = connectionModeSummary,
                     socksProxySettings = socksProxySettings,
                     onConnectionModeClick = { route = SharedSettingsRoute.ConnectionMode },
                     onSocksProxyClick = { route = SharedSettingsRoute.SocksProxy },
@@ -178,6 +191,9 @@ fun ApplicationSettingsSheet(
                 )
 
                 SharedSettingsRoute.ConnectionMode -> SharedConnectionModeSettingsContent(
+                    options = connectionModeOptions,
+                    selectedId = selectedConnectionModeId,
+                    onSelect = onConnectionModeSelected,
                     onBack = { route = SharedSettingsRoute.Connection }
                 )
 
@@ -290,6 +306,7 @@ private fun SharedSettingsHubContent(
 private fun SharedConnectionSettingsContent(
     summary: String,
     details: List<Pair<String, String>>,
+    connectionModeSummary: String,
     socksProxySettings: ApplicationSocksProxySettings?,
     onConnectionModeClick: () -> Unit,
     onSocksProxyClick: () -> Unit,
@@ -312,7 +329,7 @@ private fun SharedConnectionSettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SharedNavigationRow(
                 title = "Connection Mode",
-                value = "Proxy · Local SOCKS5",
+                value = connectionModeSummary,
                 icon = Icons.Rounded.Public,
                 onClick = onConnectionModeClick
             )
@@ -337,6 +354,9 @@ private fun SharedConnectionSettingsContent(
 
 @Composable
 private fun SharedConnectionModeSettingsContent(
+    options: List<SharedConnectionModeOption>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -347,18 +367,23 @@ private fun SharedConnectionModeSettingsContent(
     ) {
         SharedDetailHeader(
             title = "Connection Mode",
-            subtitle = "Local SOCKS5 proxy",
+            subtitle = options.firstOrNull { it.id == selectedId }?.subtitle ?: "Local SOCKS5 proxy",
             onBack = onBack
         )
 
         Spacer(Modifier.height(20.dp))
 
-        SharedSelectableSettingsCard(
-            selected = true,
-            icon = Icons.Rounded.Public,
-            title = "Proxy",
-            subtitle = "Local SOCKS endpoint"
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            options.forEach { option ->
+                SharedSelectableSettingsCard(
+                    selected = option.id == selectedId,
+                    icon = option.icon,
+                    title = option.title,
+                    subtitle = option.subtitle,
+                    onClick = { onSelect(option.id) }
+                )
+            }
+        }
     }
 }
 
@@ -937,12 +962,15 @@ private fun SharedSelectableSettingsCard(
     selected: Boolean,
     icon: ImageVector,
     title: String,
-    subtitle: String
+    subtitle: String,
+    onClick: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp),
+            .height(82.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer

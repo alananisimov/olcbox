@@ -60,7 +60,8 @@ class DesktopProxyModeTest {
                 binary = Path.of("/tmp/olcrtc"),
                 location = LocationConfig("Test", "room-$provider", "b".repeat(64), provider),
                 socksHost = "127.0.0.1",
-                socksPort = 10808
+                socksPort = 10808,
+                dnsServer = "1.1.1.1:53"
             )
             val args = command.args(Path.of("/tmp/client.yaml"))
             val yaml = command.yaml()
@@ -100,7 +101,8 @@ class DesktopProxyModeTest {
                 bypassProvider = LocationConfig.PROVIDER_WB_STREAM,
                 transport = LocationConfig.TRANSPORT_DATACHANNEL
             ),
-            dataDir = Path.of("/tmp/olcbox-data")
+            dataDir = Path.of("/tmp/olcbox-data"),
+            dnsServer = "1.1.1.1:53"
         ).yaml()
 
         assertContains(command, "transport: '${LocationConfig.TRANSPORT_DATACHANNEL}'")
@@ -118,7 +120,8 @@ class DesktopProxyModeTest {
                 key = "c".repeat(64),
                 bypassProvider = LocationConfig.PROVIDER_TELEMOST,
                 transport = LocationConfig.TRANSPORT_SEICHANNEL
-            )
+            ),
+            dnsServer = "1.1.1.1:53"
         ).yaml()
 
         assertContains(command, "transport: '${LocationConfig.TRANSPORT_SEICHANNEL}'")
@@ -147,19 +150,6 @@ class DesktopProxyModeTest {
     }
 
     @Test
-    fun linuxTunConfigCanRunRouteScriptsInsidePrivilegedTunnelProcess() {
-        val config = LinuxTunController.configContent(
-            socksPort = 10810,
-            postUpScript = "/tmp/olcbox-up.sh",
-            preDownScript = "/tmp/olcbox-down.sh"
-        )
-
-        assertContains(config, "port: 10810")
-        assertContains(config, "post-up-script: /tmp/olcbox-up.sh")
-        assertContains(config, "pre-down-script: /tmp/olcbox-down.sh")
-    }
-
-    @Test
     fun olcRtcCommandUsesDesktopWbStreamProviderAlias() {
         listOf(LocationConfig.PROVIDER_WB_STREAM, "wbstream").forEach { provider ->
             val command = OlcRtcCommand(
@@ -169,7 +159,8 @@ class DesktopProxyModeTest {
                     id = "room-wb",
                     key = "b".repeat(64),
                     bypassProvider = provider
-                )
+                ),
+                dnsServer = "1.1.1.1:53"
             ).yaml()
 
             assertContains(command, "provider: 'wbstream'")
@@ -238,19 +229,6 @@ class DesktopProxyModeTest {
     }
 
     @Test
-    fun linuxTunConfigUsesLocalSocksAndIpv4MapDns() {
-        val config = LinuxTunController.configContent()
-
-        assertContains(config, "name: olcbox0")
-        assertContains(config, "ipv4: 10.0.88.88")
-        assertContains(config, "address: 127.0.0.1")
-        assertContains(config, "port: 10808")
-        assertContains(config, "udp: 'tcp'")
-        assertContains(config, "mapdns:")
-        assertContains(config, "network: 100.64.0.0")
-    }
-
-    @Test
     fun windowsTunCommandUsesTun2SocksWintunAndLocalSocks() {
         val command = WindowsTunController.tun2SocksCommand(
             tun2SocksBinary = Path.of("C:/Olcbox/bin/tun2socks-windows-amd64.exe"),
@@ -281,17 +259,4 @@ class DesktopProxyModeTest {
         assertContains(script, "Start-Process @startArgs")
     }
 
-    @Test
-    fun linuxTunScriptsRouteUserTrafficThroughTunAndKeepRootDirect() {
-        val up = LinuxTunController.upScriptContent()
-        val down = LinuxTunController.downScriptContent()
-
-        assertContains(up, "ip rule add uidrange 0-0 lookup main pref 10")
-        assertContains(up, "ip route add default dev olcbox0 table 51820")
-        assertContains(up, "ip rule add lookup 51820 pref 20")
-        assertContains(up, "resolvectl dns olcbox0 1.1.1.1")
-        assertContains(down, "ip rule del uidrange 0-0 lookup main pref 10")
-        assertContains(down, "ip route flush table 51820")
-        assertContains(down, "resolvectl revert olcbox0")
-    }
 }

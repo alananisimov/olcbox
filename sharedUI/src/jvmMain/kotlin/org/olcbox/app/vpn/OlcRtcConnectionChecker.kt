@@ -13,6 +13,7 @@ import org.olcbox.app.vpn.desktop.DesktopNativeAssets
 import org.olcbox.app.vpn.desktop.LinuxPrivilege
 import org.olcbox.app.vpn.desktop.OlcRtcCommand
 import org.olcbox.app.vpn.desktop.PacServer
+import org.olcbox.app.vpn.desktop.SystemDns
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -246,7 +247,8 @@ internal object OlcRtcConnectionChecker {
             location = normalized,
             socksHost = PacServer.LOCAL_SOCKS_HOST,
             socksPort = socksPort,
-            dataDir = dataDir
+            dataDir = dataDir,
+            dnsServer = SystemDns.serverAddress()
         )
         val configPath = writeOlcRtcClientConfig(command)
 

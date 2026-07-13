@@ -25,10 +25,13 @@ import org.olcbox.app.desktop.DesktopPaths
 import org.olcbox.app.vpn.desktop.DesktopNativeAssets
 import org.olcbox.app.vpn.desktop.DesktopProxyController
 import org.olcbox.app.vpn.desktop.LinuxPrivilege
-import org.olcbox.app.vpn.desktop.LinuxTunController
 import org.olcbox.app.vpn.desktop.OlcRtcCommand
 import org.olcbox.app.vpn.desktop.PacServer
+import org.olcbox.app.vpn.desktop.SystemDns
 import org.olcbox.app.vpn.desktop.WindowsTunController
+import org.olcbox.app.vpn.desktop.daemon.DaemonUnavailableException
+import org.olcbox.app.vpn.desktop.daemon.LinuxDaemonTunController
+import org.olcbox.daemon.ipc.DaemonPaths
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -64,6 +67,9 @@ class DesktopVpnManager private constructor(
     private val _socksProxySettings = MutableStateFlow(DesktopSocksProxySettings())
     val socksProxySettings: StateFlow<DesktopSocksProxySettings> = _socksProxySettings.asStateFlow()
 
+    private val _connectionModePreference = MutableStateFlow<DesktopConnectionMode?>(null)
+    val connectionModePreference: StateFlow<DesktopConnectionMode?> = _connectionModePreference.asStateFlow()
+
     private var operationJob: Job? = null
     private var logJob: Job? = null
     private var tunLogJob: Job? = null
@@ -73,7 +79,7 @@ class DesktopVpnManager private constructor(
     private var tunProcess: Process? = null
     private var olcRtcConfigPath: Path? = null
     private var generation = 0L
-    private val linuxTunController = LinuxTunController(::addLog)
+    private val linuxDaemonTunController = LinuxDaemonTunController(::addLog, scope, ::handleDaemonUnexpectedStop)
     private val windowsTunController = WindowsTunController(::addLog)
 
     override fun needsPermission(): Boolean = false
@@ -169,6 +175,22 @@ class DesktopVpnManager private constructor(
         )
     }
 
+    fun updateConnectionModePreference(mode: DesktopConnectionMode?) {
+        _connectionModePreference.value = mode
+    }
+
+    fun isDesktopTunCapable(): Boolean {
+        return DesktopPaths.os == DesktopOs.Linux || DesktopPaths.os == DesktopOs.Windows
+    }
+
+    fun resolvedConnectionMode(preference: DesktopConnectionMode?): DesktopConnectionMode {
+        return when (DesktopMode.resolve(preference)) {
+            DesktopMode.LinuxTun,
+            DesktopMode.WindowsTun -> DesktopConnectionMode.Tun
+            DesktopMode.SystemProxy -> DesktopConnectionMode.Proxy
+        }
+    }
+
     fun close() {
         runBlocking {
             generation++
@@ -194,53 +216,14 @@ class DesktopVpnManager private constructor(
         }
 
         try {
-            val ready = CompletableDeferred<Unit>()
-            val startupFailure = CompletableDeferred<String>()
-            val desktopMode = DesktopMode.current()
+            val desktopMode = DesktopMode.resolve(connectionModePreference.value)
             val socksSettings = _socksProxySettings.value.normalized()
 
-            if (desktopMode == DesktopMode.WindowsTun) {
-                windowsTunController.ensureAdministratorOrRequestRestart()
-            }
-
-            process = startOlcRtcProcessWithFallback(
-                location = location,
-                socksSettings = socksSettings,
-                ready = ready,
-                startupFailure = startupFailure,
-                logOutput = true,
-                privileged = desktopMode == DesktopMode.LinuxTun
-            )
-
-            val olcRtcProcess = process ?: error("olcRTC process is missing")
-            waitForOlcRtcReady(
-                process = olcRtcProcess,
-                ready = ready,
-                startupFailure = startupFailure,
-                socksPort = socksSettings.port,
-                requestGeneration = requestGeneration
-            )
-
-            if (requestGeneration != generation) {
-                throw CancellationException("Desktop start superseded")
-            }
-
             when (desktopMode) {
-                DesktopMode.LinuxTun -> startLinuxTun(socksSettings.port, requestGeneration)
-                DesktopMode.WindowsTun -> startWindowsTun(socksSettings.port, requestGeneration)
-                DesktopMode.SystemProxy -> startSystemProxy(socksSettings, requestGeneration)
+                DesktopMode.LinuxTun -> startLinuxDaemonTun(location, socksSettings, requestGeneration)
+                DesktopMode.WindowsTun -> startWindowsDesktop(location, socksSettings, requestGeneration)
+                DesktopMode.SystemProxy -> startSystemProxyDesktop(location, socksSettings, requestGeneration)
             }
-
-            if (!olcRtcProcess.isAlive) {
-                error("olcRTC exited before desktop proxy was enabled")
-            }
-
-            startProcessExitWatchers(
-                desktopMode = desktopMode,
-                olcRtcProcess = olcRtcProcess,
-                currentTunProcess = tunProcess,
-                requestGeneration = requestGeneration
-            )
 
             setStatus(VpnStatus.Connected)
             addLog(
@@ -265,15 +248,135 @@ class DesktopVpnManager private constructor(
         }
     }
 
-    private suspend fun startLinuxTun(socksPort: Int, requestGeneration: Long) {
-        val hevBinary = DesktopNativeAssets.resolveHevSocks5TunnelBinary()
-        tunProcess = linuxTunController.start(hevBinary, socksPort)
+    // Linux TUN mode no longer spawns olcRTC locally at all — the daemon
+    // owns both olcRTC and hev-socks5-tunnel together, since olcRTC itself
+    // also needs root on this path (its own traffic must bypass the TUN
+    // routing table, see LinuxTunController's old up-script uidrange bypass
+    // rule). We only build the same YAML config the old local path used to
+    // write to disk; the daemon now writes and runs it instead. `binary`
+    // below is a required OlcRtcCommand field but unused by yaml() itself.
+    private suspend fun startLinuxDaemonTun(
+        location: LocationConfig,
+        socksSettings: DesktopSocksProxySettings,
+        requestGeneration: Long
+    ) {
+        val olcRtcCommand = OlcRtcCommand(
+            binary = Path.of("olcrtc"),
+            location = location,
+            socksHost = socksSettings.host,
+            socksPort = socksSettings.port,
+            socksUser = socksSettings.username,
+            socksPass = socksSettings.password,
+            dataDir = null,
+            dnsServer = SystemDns.serverAddress()
+        )
+
+        addLog(
+            "Starting olcRTC via olcbox-daemon provider=${OlcRtcCommand.desktopProviderArg(location.bypassProvider)}, " +
+                "transport=${location.transport}, room=${location.id}, port=${socksSettings.port}"
+        )
+
+        try {
+            linuxDaemonTunController.start(
+                olcRtcConfigYaml = olcRtcCommand.yaml(),
+                socksPort = socksSettings.port
+            )
+        } catch (e: DaemonUnavailableException) {
+            error(
+                "olcbox-daemon is not installed or not running — run: " +
+                    "sudo ${DaemonPaths.BIN_DIR}/daemon install"
+            )
+        }
 
         if (requestGeneration != generation) {
             throw CancellationException("Desktop start superseded")
         }
+    }
 
-        startTunLogReader(tunProcess ?: error("hev-socks5-tunnel process is missing"))
+    private suspend fun startWindowsDesktop(
+        location: LocationConfig,
+        socksSettings: DesktopSocksProxySettings,
+        requestGeneration: Long
+    ) {
+        windowsTunController.ensureAdministratorOrRequestRestart()
+
+        val ready = CompletableDeferred<Unit>()
+        val startupFailure = CompletableDeferred<String>()
+
+        process = startOlcRtcProcessWithFallback(
+            location = location,
+            socksSettings = socksSettings,
+            ready = ready,
+            startupFailure = startupFailure,
+            logOutput = true,
+            privileged = false
+        )
+        val olcRtcProcess = process ?: error("olcRTC process is missing")
+        waitForOlcRtcReady(
+            process = olcRtcProcess,
+            ready = ready,
+            startupFailure = startupFailure,
+            socksPort = socksSettings.port,
+            requestGeneration = requestGeneration
+        )
+        if (requestGeneration != generation) {
+            throw CancellationException("Desktop start superseded")
+        }
+
+        startWindowsTun(socksSettings.port, requestGeneration)
+
+        if (!olcRtcProcess.isAlive) {
+            error("olcRTC exited before desktop proxy was enabled")
+        }
+
+        startProcessExitWatchers(
+            desktopMode = DesktopMode.WindowsTun,
+            olcRtcProcess = olcRtcProcess,
+            currentTunProcess = tunProcess,
+            requestGeneration = requestGeneration
+        )
+    }
+
+    private suspend fun startSystemProxyDesktop(
+        location: LocationConfig,
+        socksSettings: DesktopSocksProxySettings,
+        requestGeneration: Long
+    ) {
+        val ready = CompletableDeferred<Unit>()
+        val startupFailure = CompletableDeferred<String>()
+
+        process = startOlcRtcProcessWithFallback(
+            location = location,
+            socksSettings = socksSettings,
+            ready = ready,
+            startupFailure = startupFailure,
+            logOutput = true,
+            privileged = false
+        )
+        val olcRtcProcess = process ?: error("olcRTC process is missing")
+        waitForOlcRtcReady(
+            process = olcRtcProcess,
+            ready = ready,
+            startupFailure = startupFailure,
+            socksPort = socksSettings.port,
+            requestGeneration = requestGeneration
+        )
+        if (requestGeneration != generation) {
+            throw CancellationException("Desktop start superseded")
+        }
+
+        startSystemProxy(socksSettings, requestGeneration)
+
+        if (!olcRtcProcess.isAlive) {
+            error("olcRTC exited before desktop proxy was enabled")
+        }
+
+        startProcessExitWatchers(
+            desktopMode = DesktopMode.SystemProxy,
+            olcRtcProcess = olcRtcProcess,
+            currentTunProcess = tunProcess,
+            requestGeneration = requestGeneration
+        )
     }
 
     private suspend fun startWindowsTun(socksPort: Int, requestGeneration: Long) {
@@ -310,10 +413,10 @@ class DesktopVpnManager private constructor(
         SystemProxy;
 
         companion object {
-            fun current(): DesktopMode {
+            fun resolve(preference: DesktopConnectionMode?): DesktopMode {
                 return when (DesktopPaths.os) {
-                    DesktopOs.Linux -> LinuxTun
-                    DesktopOs.Windows -> WindowsTun
+                    DesktopOs.Linux -> if (preference == DesktopConnectionMode.Proxy) SystemProxy else LinuxTun
+                    DesktopOs.Windows -> if (preference == DesktopConnectionMode.Proxy) SystemProxy else WindowsTun
                     DesktopOs.MacOS,
                     DesktopOs.Other -> SystemProxy
                 }
@@ -367,11 +470,10 @@ class DesktopVpnManager private constructor(
         when (DesktopPaths.os) {
             DesktopOs.Linux -> {
                 runCatching {
-                    linuxTunController.stop(tunProcess)
+                    linuxDaemonTunController.stop()
                 }.onFailure {
                     addLog("Linux TUN stop failed: ${it.message}")
                 }
-                tunProcess = null
             }
             DesktopOs.Windows -> {
                 runCatching {
@@ -443,7 +545,8 @@ class DesktopVpnManager private constructor(
             socksPort = socksSettings.port,
             socksUser = socksSettings.username,
             socksPass = socksSettings.password,
-            dataDir = dataDir
+            dataDir = dataDir,
+            dnsServer = SystemDns.serverAddress()
         )
         val configPath = writeOlcRtcClientConfig(olcRtcCommand)
         val command = olcRtcCommand.args(configPath)
@@ -609,6 +712,25 @@ class DesktopVpnManager private constructor(
 
         if (requestGeneration == generation) {
             setStatus(VpnStatus.Error(errorMessage))
+        }
+    }
+
+    // LinuxDaemonTunController's equivalent of startOlcRtcExitWatcher /
+    // startTunExitWatcher — the daemon itself, not a locally-held Process,
+    // is now the source of truth for whether the tunnel is still up, so it
+    // polls /tunnel/status and calls back here instead of us watching a
+    // Process handle.
+    private fun handleDaemonUnexpectedStop(message: String) {
+        val requestGeneration = generation
+        scope.launch {
+            mutex.withLock {
+                if (requestGeneration != generation) return@withLock
+                handleUnexpectedProcessExit(
+                    logMessage = "olcbox-daemon reported unexpected tunnel state: $message",
+                    errorMessage = "olcbox-daemon: $message",
+                    requestGeneration = requestGeneration
+                )
+            }
         }
     }
 

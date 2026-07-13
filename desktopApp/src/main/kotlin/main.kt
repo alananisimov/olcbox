@@ -48,6 +48,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
@@ -58,12 +61,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
+import com.kdroid.composetray.tray.api.Tray
+import io.github.kdroidfilter.nucleus.hidpi.getLinuxNativeScaleFactor
 import java.awt.Dimension
 import java.awt.FileDialog
 import java.awt.Frame
@@ -87,6 +90,7 @@ import org.olcbox.app.ui.OlcboxAppContent
 import org.olcbox.app.ui.components.ApplicationSocksProxySettings
 import org.olcbox.app.ui.components.ApplicationSettingsSheet
 import org.olcbox.app.ui.components.ApplicationUpdateOfferSheet
+import org.olcbox.app.ui.components.SharedConnectionModeOption
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
 import org.olcbox.app.ui.features.locations.LocationItem
 import org.olcbox.app.ui.features.locations.LocationViewModel
@@ -101,8 +105,10 @@ import org.olcbox.app.update.identity
 import org.olcbox.app.update.isDownloaded
 import org.olcbox.app.update.isUpdateCheckDue
 import org.olcbox.app.update.shouldShowOffer
+import org.olcbox.app.vpn.DesktopConnectionMode
 import org.olcbox.app.vpn.DesktopSocksProxySettings
 import org.olcbox.app.vpn.DesktopVpnManager
+import org.olcbox.app.vpn.JvmDesktopConnectionModeStore
 import org.olcbox.app.vpn.JvmDesktopSocksProxySettingsStore
 
 private class DesktopAppDependencies {
@@ -116,6 +122,7 @@ private class DesktopAppDependencies {
     val updateSettingsStore = JvmUpdateSettingsStore()
     val updateInstaller = JvmUpdateInstaller()
     val socksProxySettingsStore = JvmDesktopSocksProxySettingsStore()
+    val connectionModeStore = JvmDesktopConnectionModeStore()
 
     val vpnManager = DesktopVpnManager(locationsRepository)
 
@@ -135,351 +142,421 @@ private class DesktopAppDependencies {
 
 private const val WINDOWS_ELEVATED_START_ARGUMENT = "--olcbox-start-vpn-after-elevation"
 
-fun main(args: Array<String>) = application {
-    // Configure JNA to find native libraries in resources
-    System.setProperty(
-        "jna.library.path",
-        System.getProperty("jna.library.path", "") +
-                File.pathSeparator +
-                File(System.getProperty("user.dir"), "native").absolutePath
-    )
-
-    val dependencies = remember { DesktopAppDependencies() }
-    var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
-    var showDesktopSettings by remember { mutableStateOf(false) }
-    var isWindowVisible by remember { mutableStateOf(true) }
-    var updateMessage by remember { mutableStateOf<String?>(null) }
-    var updateSettings by remember { mutableStateOf(AppUpdateSettings()) }
-    var updateProgress by remember { mutableStateOf<Float?>(null) }
-    var updateOffer by remember { mutableStateOf<AppUpdateInfo?>(null) }
-    var sharePayload by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var desktopNotice by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val trayState = rememberTrayState()
-    val trayHomeState by dependencies.homeViewModel.state.collectAsState()
-
-    suspend fun saveUpdateSettings(settings: AppUpdateSettings) {
-        val normalized = settings.normalized()
-        updateSettings = normalized
-        dependencies.updateSettingsStore.save(normalized)
+fun main(args: Array<String>) {
+    // Java's own DPI auto-detection is unreliable on Linux/Wayland
+    // compositors like Niri, which don't implement the legacy X11 DPI
+    // reporting Java expects — a wrong scale here is what causes Compose to
+    // render into the wrong physical pixel area (the "black area" bug).
+    // Must run before application{} creates the window.
+    if (System.getProperty("sun.java2d.uiScale") == null) {
+        val scale = getLinuxNativeScaleFactor()
+        if (scale > 0.0) {
+            System.setProperty("sun.java2d.uiScale", scale.toString())
+        }
     }
 
-    fun checkUpdate(manual: Boolean) {
-        scope.launch {
-            val previousSettings = updateSettings
-            val checkStartedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
-            if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
+    application {
+        // Configure JNA to find native libraries in resources
+        System.setProperty(
+            "jna.library.path",
+            System.getProperty("jna.library.path", "") +
+                    File.pathSeparator +
+                    File(System.getProperty("user.dir"), "native").absolutePath
+        )
 
-            updateMessage = "Checking ${previousSettings.channel.name.lowercase()}..."
-            val result = dependencies.updateService.check(previousSettings.channel)
-            val checkedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
-            val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
-            saveUpdateSettings(checkedSettings)
-            result.fold(
-                onSuccess = { info ->
-                    if (manual || info.shouldShowOffer(previousSettings, checkedAt)) {
-                        if (info.isDownloaded(checkedSettings)) {
-                            updateOffer = null
-                            updateMessage = "Latest ${info.channel.name.lowercase()} is already downloaded"
-                        } else if (info.isUpdateAvailable) {
-                            updateOffer = info
-                            updateMessage = "${info.channel.name} update found: ${info.version}"
+        val dependencies = remember { DesktopAppDependencies() }
+        var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
+        var showDesktopSettings by remember { mutableStateOf(false) }
+        var isWindowVisible by remember { mutableStateOf(true) }
+        var updateMessage by remember { mutableStateOf<String?>(null) }
+        var updateSettings by remember { mutableStateOf(AppUpdateSettings()) }
+        var updateProgress by remember { mutableStateOf<Float?>(null) }
+        var updateOffer by remember { mutableStateOf<AppUpdateInfo?>(null) }
+        var sharePayload by remember { mutableStateOf<Pair<String, String>?>(null) }
+        var desktopNotice by remember { mutableStateOf<String?>(null) }
+        val scope = rememberCoroutineScope()
+        val trayHomeState by dependencies.homeViewModel.state.collectAsState()
+
+        suspend fun saveUpdateSettings(settings: AppUpdateSettings) {
+            val normalized = settings.normalized()
+            updateSettings = normalized
+            dependencies.updateSettingsStore.save(normalized)
+        }
+
+        fun checkUpdate(manual: Boolean) {
+            scope.launch {
+                val previousSettings = updateSettings
+                val checkStartedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
+                if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
+
+                updateMessage = "Checking ${previousSettings.channel.name.lowercase()}..."
+                val result = dependencies.updateService.check(previousSettings.channel)
+                val checkedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
+                val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
+                saveUpdateSettings(checkedSettings)
+                result.fold(
+                    onSuccess = { info ->
+                        if (manual || info.shouldShowOffer(previousSettings, checkedAt)) {
+                            if (info.isDownloaded(checkedSettings)) {
+                                updateOffer = null
+                                updateMessage = "Latest ${info.channel.name.lowercase()} is already downloaded"
+                            } else if (info.isUpdateAvailable) {
+                                updateOffer = info
+                                updateMessage = "${info.channel.name} update found: ${info.version}"
+                            } else {
+                                updateOffer = null
+                                updateMessage = "Olcbox is up to date"
+                            }
                         } else {
                             updateOffer = null
-                            updateMessage = "Olcbox is up to date"
+                            updateMessage = null
                         }
-                    } else {
-                        updateOffer = null
-                        updateMessage = null
+                    },
+                    onFailure = { error ->
+                        updateMessage = error.message ?: "Update check failed"
                     }
-                },
-                onFailure = { error ->
-                    updateMessage = error.message ?: "Update check failed"
-                }
-            )
-        }
-    }
-
-    fun downloadUpdate(info: AppUpdateInfo) {
-        scope.launch {
-            updateProgress = 0f
-            updateMessage = "Downloading ${info.asset.name}..."
-            val result = dependencies.updateInstaller.downloadAndOpen(info.asset) { progress ->
-                updateProgress = progress
-            }
-            updateMessage = result.getOrElse { error ->
-                "Download failed: ${error.message ?: "unknown error"}"
-            }
-            if (result.isSuccess) {
-                saveUpdateSettings(
-                    updateSettings.copy(
-                        lastSeenUpdateVersion = info.identity(),
-                        lastDownloadedUpdateVersion = info.identity()
-                    )
                 )
+            }
+        }
+
+        fun downloadUpdate(info: AppUpdateInfo) {
+            scope.launch {
+                updateProgress = 0f
+                updateMessage = "Downloading ${info.asset.name}..."
+                val result = dependencies.updateInstaller.downloadAndOpen(info.asset) { progress ->
+                    updateProgress = progress
+                }
+                updateMessage = result.getOrElse { error ->
+                    "Download failed: ${error.message ?: "unknown error"}"
+                }
+                if (result.isSuccess) {
+                    saveUpdateSettings(
+                        updateSettings.copy(
+                            lastSeenUpdateVersion = info.identity(),
+                            lastDownloadedUpdateVersion = info.identity()
+                        )
+                    )
+                    updateOffer = null
+                }
+                updateProgress = null
+            }
+        }
+
+        fun postponeUpdate(info: AppUpdateInfo) {
+            scope.launch {
+                saveUpdateSettings(updateSettings.copy(lastSeenUpdateVersion = info.identity()))
                 updateOffer = null
             }
-            updateProgress = null
         }
-    }
 
-    fun postponeUpdate(info: AppUpdateInfo) {
-        scope.launch {
-            saveUpdateSettings(updateSettings.copy(lastSeenUpdateVersion = info.identity()))
-            updateOffer = null
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        val loaded = dependencies.updateSettingsStore.load()
-        updateSettings = loaded
-        dependencies.vpnManager.updateSocksProxySettings(dependencies.socksProxySettingsStore.load())
-        checkUpdate(manual = false)
-        if (WINDOWS_ELEVATED_START_ARGUMENT in args) {
-            dependencies.homeViewModel.loadCurrentConfig {
-                dependencies.homeViewModel.ToggleVpn()
-            }
-        }
-    }
-
-    LaunchedEffect(desktopNotice) {
-        if (desktopNotice != null) {
-            delay(1_800)
-            desktopNotice = null
-        }
-    }
-
-    Tray(
-        state = trayState,
-        icon = painterResource("LinuxIcon.png"),
-        tooltip = "Olcbox",
-        menu = {
-            Item("Open", onClick = { isWindowVisible = true })
-            Item(
-                if (trayHomeState.isVpnConnected || trayHomeState.isVpnLoading) "Stop" else "Start",
-                enabled = trayHomeState.isVpnConnected || trayHomeState.isVpnLoading || trayHomeState.canStartVpn,
-                onClick = {
+        LaunchedEffect(Unit) {
+            val loaded = dependencies.updateSettingsStore.load()
+            updateSettings = loaded
+            dependencies.vpnManager.updateSocksProxySettings(dependencies.socksProxySettingsStore.load())
+            dependencies.vpnManager.updateConnectionModePreference(dependencies.connectionModeStore.load())
+            checkUpdate(manual = false)
+            if (WINDOWS_ELEVATED_START_ARGUMENT in args) {
+                dependencies.homeViewModel.loadCurrentConfig {
                     dependencies.homeViewModel.ToggleVpn()
                 }
-            )
-            Item("Settings", onClick = {
-                isWindowVisible = true
-                showDesktopSettings = true
-            })
-            Separator()
-            Item("Quit", onClick = {
-                dependencies.close()
-                exitApplication()
-            })
+            }
         }
-    )
 
-    Window(
-        title = "olcbox",
-        visible = isWindowVisible,
-        state = rememberWindowState(width = 430.dp, height = 780.dp),
-        onCloseRequest = {
-            if (java.awt.SystemTray.isSupported()) {
+        LaunchedEffect(desktopNotice) {
+            if (desktopNotice != null) {
+                delay(1_800)
+                desktopNotice = null
+            }
+        }
+
+        Tray(
+            icon = painterResource("LinuxIcon.png"),
+            tooltip = "Olcbox",
+            menuContent = {
+                Item("Open", onClick = { isWindowVisible = true })
+                Item(
+                    if (trayHomeState.isVpnConnected || trayHomeState.isVpnLoading) "Stop" else "Start",
+                    isEnabled = trayHomeState.isVpnConnected || trayHomeState.isVpnLoading || trayHomeState.canStartVpn,
+                    onClick = {
+                        dependencies.homeViewModel.ToggleVpn()
+                    }
+                )
+                Item("Settings", onClick = {
+                    isWindowVisible = true
+                    showDesktopSettings = true
+                })
+                Divider()
+                Item("Quit", onClick = {
+                    dependencies.close()
+                    exitApplication()
+                })
+            }
+        )
+
+        Window(
+            title = "olcbox",
+            visible = isWindowVisible,
+            state = rememberWindowState(width = 430.dp, height = 780.dp),
+            // Fixed-size (non-resizable) windows are floated automatically by
+            // tiling compositors like Niri — this is how WG Tunnel's desktop
+            // window ends up floating without any explicit Niri window rule.
+            resizable = false,
+            onCloseRequest = {
+                // Tray(...) below is created unconditionally (composenativetray
+                // has no public "is tray supported" check — it just always
+                // attempts native init and logs internally on failure), so
+                // hiding to tray here is unconditional too. The old AWT
+                // SystemTray.isSupported() check is stale from before the
+                // stage-8 tray replacement: it returns false on Wayland/Niri,
+                // which made this close full-quit instead of hide.
                 isWindowVisible = false
-            } else {
-                dependencies.close()
-                exitApplication()
-            }
-        },
-    ) {
-        window.minimumSize = Dimension(350, 600)
+            },
+        ) {
+            window.minimumSize = Dimension(350, 600)
 
-        DisposableEffect(Unit) {
-            onDispose {
-                dependencies.close()
-            }
-        }
-
-        AppTheme {
-            val logs by dependencies.homeViewModel.logs.collectAsState()
-            val homeState by dependencies.homeViewModel.state.collectAsState()
-            val socksProxySettings by dependencies.vpnManager.socksProxySettings.collectAsState()
-
-            fun reloadLocationsAfterImport(onComplete: () -> Unit = {}) {
-                dependencies.locationViewModel.loadLocations {
-                    dependencies.homeViewModel.loadCurrentConfig(onComplete)
+            DisposableEffect(Unit) {
+                onDispose {
+                    dependencies.close()
                 }
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                OlcboxAppContent(
-                    homeViewModel = dependencies.homeViewModel,
-                    locationViewModel = dependencies.locationViewModel,
-                    currentScreen = currentScreen,
-                    onNavigate = { screen ->
-                        currentScreen = screen
-                    },
-                    onToggleClick = {
-                        dependencies.homeViewModel.ToggleVpn()
-                    },
-                    onImportFileRequested = {
-                        chooseConfigFile(window)?.let { file ->
-                            dependencies.homeViewModel.onFileSelected(file) {
-                                reloadLocationsAfterImport()
-                            }
-                        }
-                    },
-                    onImportFromClipboardRequested = { onImported, onError ->
-                        dependencies.homeViewModel.onPasteFromClipboard(
-                            onComplete = {
-                                reloadLocationsAfterImport(onImported)
-                            },
-                            onError = onError
+            AppTheme {
+                val logs by dependencies.homeViewModel.logs.collectAsState()
+                val homeState by dependencies.homeViewModel.state.collectAsState()
+                val socksProxySettings by dependencies.vpnManager.socksProxySettings.collectAsState()
+                val connectionModePreference by dependencies.vpnManager.connectionModePreference.collectAsState()
+                val activeConnectionMode = dependencies.vpnManager.resolvedConnectionMode(connectionModePreference)
+                val tunCapable = dependencies.vpnManager.isDesktopTunCapable()
+                val connectionModeOptions = buildList {
+                    if (tunCapable) {
+                        add(
+                            SharedConnectionModeOption(
+                                id = "tun",
+                                title = "TUN",
+                                subtitle = "System VPN interface",
+                                icon = Icons.Outlined.Shield
+                            )
                         )
-                    },
-                    onScanQrRequested = {},
-                    onCopyConfigRequested = {
-                        dependencies.homeViewModel.onCopyFullConfigClicked()
-                    },
-                    onShareLocationRequested = { config ->
-                        sharePayload = "Location QR" to ConfigShareService.olcRtcUri(config)
-                    },
-                    onSaveLogsRequested = { onSaved, onError ->
-                        chooseSaveFile(
-                            owner = window,
-                            defaultName = dependencies.homeViewModel.suggestedLogsFileName()
-                        )?.let { file ->
-                            dependencies.homeViewModel.onSaveLogsToFile(
-                                target = file,
-                                onSaved = onSaved,
+                    }
+                    add(
+                        SharedConnectionModeOption(
+                            id = "proxy",
+                            title = "Proxy",
+                            subtitle = "Local SOCKS endpoint",
+                            icon = Icons.Rounded.Public
+                        )
+                    )
+                }
+                val selectedConnectionModeId = if (activeConnectionMode == DesktopConnectionMode.Tun) "tun" else "proxy"
+                val connectionModeSummary = if (activeConnectionMode == DesktopConnectionMode.Tun) {
+                    "TUN · Full tunnel"
+                } else {
+                    "Proxy · Local SOCKS5"
+                }
+
+                fun reloadLocationsAfterImport(onComplete: () -> Unit = {}) {
+                    dependencies.locationViewModel.loadLocations {
+                        dependencies.homeViewModel.loadCurrentConfig(onComplete)
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    OlcboxAppContent(
+                        homeViewModel = dependencies.homeViewModel,
+                        locationViewModel = dependencies.locationViewModel,
+                        currentScreen = currentScreen,
+                        onNavigate = { screen ->
+                            currentScreen = screen
+                        },
+                        onToggleClick = {
+                            dependencies.homeViewModel.ToggleVpn()
+                        },
+                        onImportFileRequested = {
+                            chooseConfigFile(window)?.let { file ->
+                                dependencies.homeViewModel.onFileSelected(file) {
+                                    reloadLocationsAfterImport()
+                                }
+                            }
+                        },
+                        onImportFromClipboardRequested = { onImported, onError ->
+                            dependencies.homeViewModel.onPasteFromClipboard(
+                                onComplete = {
+                                    reloadLocationsAfterImport(onImported)
+                                },
                                 onError = onError
                             )
-                        }
-                    },
-                    showAppSettingsButton = true,
-                    showSplitTunnelingButton = false,
-                    canScanQr = false,
-                    onAppSettingsClick = { showDesktopSettings = true },
-                    onSplitTunnelingClick = {}
-                )
-
-                if (showDesktopSettings) {
-                    ApplicationSettingsSheet(
-                        updateSettings = updateSettings,
-                        updateStatusText = updateMessage,
-                        updateDownloadProgress = updateProgress,
-                        updateOffer = updateOffer,
-                        subscriptions = desktopSubscriptionItems(dependencies.locationViewModel.locations.toList()),
-                        logs = logs,
-                        connectionSummary = "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}",
-                        connectionDetails = listOf(
-                            "PAC URL" to "http://127.0.0.1:10809/proxy.pac",
-                            "PAC Target" to "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}"
-                        ),
-                        socksProxySettings = socksProxySettings.toApplicationSocksProxySettings(),
-                        isConnectionActive = homeState.isVpnConnected,
-                        onDismiss = { showDesktopSettings = false },
-                        onCopyConfigClick = {
-                            dependencies.homeViewModel.onCopyFullConfigClicked()
-                            desktopNotice = "Copied"
                         },
-                        onSaveLogsClick = {
+                        onScanQrRequested = {},
+                        onCopyConfigRequested = {
+                            dependencies.homeViewModel.onCopyFullConfigClicked()
+                        },
+                        onShareLocationRequested = { config ->
+                            sharePayload = "Location QR" to ConfigShareService.olcRtcUri(config)
+                        },
+                        onSaveLogsRequested = { onSaved, onError ->
                             chooseSaveFile(
                                 owner = window,
                                 defaultName = dependencies.homeViewModel.suggestedLogsFileName()
                             )?.let { file ->
                                 dependencies.homeViewModel.onSaveLogsToFile(
                                     target = file,
-                                    onSaved = { message -> updateMessage = message },
-                                    onError = { message -> updateMessage = message }
+                                    onSaved = onSaved,
+                                    onError = onError
                                 )
                             }
                         },
-                        onShareLogsClick = {
-                            dependencies.homeViewModel.onShareLogs(
-                                onShared = { message -> updateMessage = message },
-                                onError = { message -> updateMessage = message }
-                            )
-                        },
-                        onUpdateIntervalSelected = { hours ->
-                            scope.launch {
-                                saveUpdateSettings(updateSettings.copy(intervalHours = hours))
-                            }
-                        },
-                        onCheckUpdatesClick = { checkUpdate(manual = true) },
-                        onDownloadUpdateClick = { info -> downloadUpdate(info) },
-                        onLaterUpdateClick = { info -> postponeUpdate(info) },
-                        onSubscriptionShareClick = { url ->
-                            sharePayload = "Subscription QR" to ConfigShareService.subscriptionQrText(url)
-                        },
-                        onSubscriptionRefreshClick = { url ->
-                            dependencies.homeViewModel.refreshSubscription(url) { updatedCount ->
-                                reloadLocationsAfterImport {
+                        showAppSettingsButton = true,
+                        showSplitTunnelingButton = false,
+                        canScanQr = false,
+                        onAppSettingsClick = { showDesktopSettings = true },
+                        onSplitTunnelingClick = {}
+                    )
+
+                    if (showDesktopSettings) {
+                        ApplicationSettingsSheet(
+                            updateSettings = updateSettings,
+                            updateStatusText = updateMessage,
+                            updateDownloadProgress = updateProgress,
+                            updateOffer = updateOffer,
+                            subscriptions = desktopSubscriptionItems(dependencies.locationViewModel.locations.toList()),
+                            logs = logs,
+                            connectionSummary = if (activeConnectionMode == DesktopConnectionMode.Tun) {
+                                "TUN · Full tunnel"
+                            } else {
+                                "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}"
+                            },
+                            connectionDetails = if (activeConnectionMode == DesktopConnectionMode.Proxy) {
+                                listOf(
+                                    "PAC URL" to "http://127.0.0.1:10809/proxy.pac",
+                                    "PAC Target" to "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}"
+                                )
+                            } else {
+                                emptyList()
+                            },
+                            connectionModeSummary = connectionModeSummary,
+                            connectionModeOptions = connectionModeOptions,
+                            selectedConnectionModeId = selectedConnectionModeId,
+                            onConnectionModeSelected = { id ->
+                                val mode = if (id == "tun") DesktopConnectionMode.Tun else DesktopConnectionMode.Proxy
+                                dependencies.vpnManager.updateConnectionModePreference(mode)
+                                scope.launch {
+                                    dependencies.connectionModeStore.save(mode)
+                                }
+                                desktopNotice = "Connection mode saved"
+                                if (homeState.isVpnConnected) {
                                     dependencies.homeViewModel.restartVpnIfRunning()
-                                    updateMessage = if (updatedCount > 0) {
-                                        "Subscription updated"
-                                    } else {
-                                        "Subscription not updated"
+                                }
+                            },
+                            socksProxySettings = socksProxySettings.toApplicationSocksProxySettings(),
+                            isConnectionActive = homeState.isVpnConnected,
+                            onDismiss = { showDesktopSettings = false },
+                            onCopyConfigClick = {
+                                dependencies.homeViewModel.onCopyFullConfigClicked()
+                                desktopNotice = "Copied"
+                            },
+                            onSaveLogsClick = {
+                                chooseSaveFile(
+                                    owner = window,
+                                    defaultName = dependencies.homeViewModel.suggestedLogsFileName()
+                                )?.let { file ->
+                                    dependencies.homeViewModel.onSaveLogsToFile(
+                                        target = file,
+                                        onSaved = { message -> updateMessage = message },
+                                        onError = { message -> updateMessage = message }
+                                    )
+                                }
+                            },
+                            onShareLogsClick = {
+                                dependencies.homeViewModel.onShareLogs(
+                                    onShared = { message -> updateMessage = message },
+                                    onError = { message -> updateMessage = message }
+                                )
+                            },
+                            onUpdateIntervalSelected = { hours ->
+                                scope.launch {
+                                    saveUpdateSettings(updateSettings.copy(intervalHours = hours))
+                                }
+                            },
+                            onCheckUpdatesClick = { checkUpdate(manual = true) },
+                            onDownloadUpdateClick = { info -> downloadUpdate(info) },
+                            onLaterUpdateClick = { info -> postponeUpdate(info) },
+                            onSubscriptionShareClick = { url ->
+                                sharePayload = "Subscription QR" to ConfigShareService.subscriptionQrText(url)
+                            },
+                            onSubscriptionRefreshClick = { url ->
+                                dependencies.homeViewModel.refreshSubscription(url) { updatedCount ->
+                                    reloadLocationsAfterImport {
+                                        dependencies.homeViewModel.restartVpnIfRunning()
+                                        updateMessage = if (updatedCount > 0) {
+                                            "Subscription updated"
+                                        } else {
+                                            "Subscription not updated"
+                                        }
                                     }
                                 }
+                            },
+                            onSocksProxySettingsSaved = { username, password, port ->
+                                val settings = socksProxySettings.copy(
+                                    port = port,
+                                    username = username,
+                                    password = password
+                                ).normalized()
+                                dependencies.vpnManager.updateSocksProxySettings(settings)
+                                scope.launch {
+                                    dependencies.socksProxySettingsStore.save(settings)
+                                }
+                                desktopNotice = "SOCKS proxy saved"
+                                if (homeState.isVpnConnected) {
+                                    dependencies.homeViewModel.restartVpnIfRunning()
+                                }
+                            },
+                            onSocksProxyPasswordRegenerated = {
+                                val settings = socksProxySettings.copy(
+                                    password = generateDesktopProxyPassword()
+                                ).normalized()
+                                dependencies.vpnManager.updateSocksProxySettings(settings)
+                                scope.launch {
+                                    dependencies.socksProxySettingsStore.save(settings)
+                                }
+                                desktopNotice = "Password regenerated"
+                                if (homeState.isVpnConnected) {
+                                    dependencies.homeViewModel.restartVpnIfRunning()
+                                }
                             }
-                        },
-                        onSocksProxySettingsSaved = { username, password, port ->
-                            val settings = socksProxySettings.copy(
-                                port = port,
-                                username = username,
-                                password = password
-                            ).normalized()
-                            dependencies.vpnManager.updateSocksProxySettings(settings)
-                            scope.launch {
-                                dependencies.socksProxySettingsStore.save(settings)
-                            }
-                            desktopNotice = "SOCKS proxy saved"
-                            if (homeState.isVpnConnected) {
-                                dependencies.homeViewModel.restartVpnIfRunning()
-                            }
-                        },
-                        onSocksProxyPasswordRegenerated = {
-                            val settings = socksProxySettings.copy(
-                                password = generateDesktopProxyPassword()
-                            ).normalized()
-                            dependencies.vpnManager.updateSocksProxySettings(settings)
-                            scope.launch {
-                                dependencies.socksProxySettingsStore.save(settings)
-                            }
-                            desktopNotice = "Password regenerated"
-                            if (homeState.isVpnConnected) {
-                                dependencies.homeViewModel.restartVpnIfRunning()
-                            }
-                        }
-                    )
-                }
+                        )
+                    }
 
-                updateOffer?.let { info ->
-                    ApplicationUpdateOfferSheet(
-                        info = info,
-                        downloadProgress = updateProgress,
-                        onLater = { postponeUpdate(info) },
-                        onDownload = { downloadUpdate(info) }
-                    )
-                }
+                    updateOffer?.let { info ->
+                        ApplicationUpdateOfferSheet(
+                            info = info,
+                            downloadProgress = updateProgress,
+                            onLater = { postponeUpdate(info) },
+                            onDownload = { downloadUpdate(info) }
+                        )
+                    }
 
-                sharePayload?.let { (title, payload) ->
-                    DesktopConfigShareOverlay(
-                        title = title,
-                        payload = payload,
-                        onCopy = {
-                            dependencies.configImporter.copyToClipboard(payload)
-                            desktopNotice = "Copied"
-                        },
-                        onDismiss = {
-                            sharePayload = null
-                        }
-                    )
-                }
+                    sharePayload?.let { (title, payload) ->
+                        DesktopConfigShareOverlay(
+                            title = title,
+                            payload = payload,
+                            onCopy = {
+                                dependencies.configImporter.copyToClipboard(payload)
+                                desktopNotice = "Copied"
+                            },
+                            onDismiss = {
+                                sharePayload = null
+                            }
+                        )
+                    }
 
-                desktopNotice?.let { notice ->
-                    DesktopNotice(
-                        text = notice,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 24.dp)
-                    )
+                    desktopNotice?.let { notice ->
+                        DesktopNotice(
+                            text = notice,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 24.dp)
+                        )
+                    }
                 }
             }
         }

@@ -59,7 +59,7 @@ class HomeScreenViewModel(
                         VpnStatus.Connected -> it.copy(isVpnConnected = true, isVpnLoading = false)
                         VpnStatus.Connecting -> it.copy(isVpnConnected = false, isVpnLoading = true)
                         VpnStatus.Reconnecting -> it.copy(isVpnConnected = true, isVpnLoading = true)
-                        VpnStatus.Stopping -> it.copy(isVpnConnected = false, isVpnLoading = false)
+                        VpnStatus.Stopping -> it.copy(isVpnConnected = false, isVpnLoading = true)
                         VpnStatus.Disconnected -> it.copy(isVpnConnected = false, isVpnLoading = false)
                         is VpnStatus.Error -> it.copy(isVpnConnected = false, isVpnLoading = false)
                     }

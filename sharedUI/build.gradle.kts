@@ -163,6 +163,7 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.kstore.file)
             implementation(libs.jna)
+            implementation(project(":daemonIpc"))
         }
 
         iosMain.dependencies {
