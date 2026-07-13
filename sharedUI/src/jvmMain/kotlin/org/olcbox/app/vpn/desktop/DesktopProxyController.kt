@@ -39,6 +39,7 @@ internal class MacOsProxyController : DesktopProxyController {
     private var backup: List<MacOsAutoProxyState>? = null
 
     override suspend fun enable(pacUrl: String) {
+        validatePacUrl(pacUrl)
         val services = enabledNetworkServices()
         backup = services.map { service ->
             readAutoProxyState(service)
@@ -113,6 +114,7 @@ internal class WindowsProxyController : DesktopProxyController {
     private var backup: WindowsProxyState? = null
 
     override suspend fun enable(pacUrl: String) {
+        validatePacUrl(pacUrl)
         backup = readState()
         enableCommands(pacUrl).forEach { runCommand(it) }
         refreshProxySettings()
@@ -201,6 +203,11 @@ internal class WindowsProxyController : DesktopProxyController {
             return listOf("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
         }
     }
+}
+
+private fun validatePacUrl(pacUrl: String) {
+    val url = runCatching { java.net.URL(pacUrl) }.getOrElse { throw IllegalArgumentException("Invalid PAC URL") }
+    require(url.protocol == "http" || url.protocol == "https") { "PAC URL must use http or https scheme" }
 }
 
 private suspend fun runCommand(command: List<String>): String = withContext(Dispatchers.IO) {
