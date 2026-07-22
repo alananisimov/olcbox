@@ -43,3 +43,6 @@ keystore.properties
 release-keystore.jks
 .!80165!.DS_Store
 .zed
+
+# iOS: hev tun2socks xcframework is built by the PacketTunnel pre-build phase
+iosApp/Frameworks/

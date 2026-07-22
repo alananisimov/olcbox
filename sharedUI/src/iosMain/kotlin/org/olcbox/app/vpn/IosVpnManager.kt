@@ -22,15 +22,20 @@ import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.ios.IosBridgeResult
 import org.olcbox.app.ios.IosLogWriter
+import org.olcbox.app.ios.IosMessageCallback
 import org.olcbox.app.ios.IosOlcRtcBridge
 import org.olcbox.app.ios.IosOlcRtcCheckRequest
 import org.olcbox.app.ios.IosOlcRtcStartRequest
+import org.olcbox.app.ios.IosTunnelBridge
+import org.olcbox.app.ios.IosTunnelStartRequest
+import org.olcbox.app.ios.IosTunnelStatusListener
 import org.olcbox.app.ui.components.ApplicationSocksProxySettings
 import platform.Foundation.NSUserDefaults
 
 class IosVpnManager(
     private val locationsRepository: LocationsRepository,
-    private val olcRtcBridge: IosOlcRtcBridge
+    private val olcRtcBridge: IosOlcRtcBridge,
+    private val tunnelBridge: IosTunnelBridge? = null
 ) : VpnManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -47,6 +52,18 @@ class IosVpnManager(
 
     private val _socksProxySettings = MutableStateFlow(loadSocksProxySettings())
     val socksProxySettings: StateFlow<ApplicationSocksProxySettings> = _socksProxySettings.asStateFlow()
+
+    // Proxy vs TUN. TUN is only offered when a tunnelBridge is wired (i.e. the app was
+    // built with the PacketTunnel extension). Falls back to Proxy otherwise.
+    private val _connectionMode = MutableStateFlow(loadConnectionMode())
+    val connectionMode: StateFlow<IosConnectionMode> = _connectionMode.asStateFlow()
+
+    /** True on builds that ship the Network Extension (TUN mode is selectable). */
+    val supportsTunMode: Boolean = tunnelBridge != null
+
+    // Which mode the currently-running session was started with, so status callbacks
+    // and stop() route to the right backend.
+    private var activeMode: IosConnectionMode = IosConnectionMode.Proxy
 
     private var operationJob: Job? = null
     private var generation = 0L
@@ -74,14 +91,40 @@ class IosVpnManager(
                     }
             }
         })
+        tunnelBridge?.setStatusListener(object : IosTunnelStatusListener {
+            override fun onStatus(status: String, message: String?) {
+                // Swift delivers this on NotificationCenter's thread; hop into the
+                // manager scope so state changes stay ordered and stop after close().
+                scope.launch { handleTunnelStatus(status, message) }
+            }
+        })
     }
 
     override fun needsPermission(): Boolean = false
+
+    /** Selects Proxy or TUN. Ignored (kept as Proxy) on builds without the extension. */
+    fun selectConnectionMode(mode: IosConnectionMode) {
+        val effective = if (mode == IosConnectionMode.Tun && !supportsTunMode) {
+            IosConnectionMode.Proxy
+        } else {
+            mode
+        }
+        if (_connectionMode.value == effective) return
+        _connectionMode.value = effective
+        saveConnectionMode(effective)
+    }
 
     override fun startVpn() {
         desiredConnected = true
         reconnectAttempt = 0
         reconnectJob?.cancel()
+
+        if (_connectionMode.value == IosConnectionMode.Tun && tunnelBridge != null) {
+            startTunnel()
+            return
+        }
+
+        activeMode = IosConnectionMode.Proxy
         val requestedGeneration = ++generation
         operationJob = scope.launch {
             mutex.withLock {
@@ -109,6 +152,14 @@ class IosVpnManager(
         watchdogJob?.cancel()
         reconnectJob?.cancel()
         generation++
+
+        if (activeMode == IosConnectionMode.Tun && tunnelBridge != null) {
+            setStatus(VpnStatus.Stopping)
+            tunnelBridge.stop()
+            addLog("iOS VPN tunnel stopping")
+            return
+        }
+
         operationJob = scope.launch {
             mutex.withLock {
                 setStatus(VpnStatus.Stopping)
@@ -116,6 +167,70 @@ class IosVpnManager(
                 setStatus(VpnStatus.Disconnected)
                 addLog("iOS SOCKS stopped")
             }
+        }
+    }
+
+    private fun startTunnel() {
+        activeMode = IosConnectionMode.Tun
+        setStatus(VpnStatus.Connecting)
+        scope.launch {
+            val active = locationsRepository.getActiveLocation()
+            val location = active?.location?.normalized()
+            if (location == null || !location.isComplete()) {
+                setStatus(VpnStatus.Error("No active location"))
+                addLog("Add a valid location before starting iOS VPN")
+                return@launch
+            }
+
+            val deviceId = locationsRepository.getDeviceIdentity()
+            val socks = _socksProxySettings.value
+            val request = IosTunnelStartRequest(
+                carrierName = location.bypassProvider,
+                transportName = location.transport,
+                roomId = location.id,
+                clientId = deviceId,
+                keyHex = location.key,
+                socksPort = socks.port,
+                socksUser = socks.username,
+                socksPass = socks.password,
+                vp8Fps = location.vp8Fps,
+                vp8BatchSize = location.vp8Batch,
+                mtu = TUN_MTU,
+                dnsAddress = TUN_DNS_ADDRESS
+            )
+            addLog(
+                "Starting iOS VPN provider=${location.bypassProvider}, " +
+                    "transport=${location.transport}, room=${location.id}"
+            )
+            tunnelBridge?.start(request, object : IosMessageCallback {
+                // NE completion handlers arrive on arbitrary queues; hop into the
+                // manager scope (no-op once close() has cancelled it).
+                override fun onSuccess(message: String) {
+                    scope.launch { addLog("iOS VPN tunnel started") }
+                }
+
+                override fun onError(message: String) {
+                    scope.launch {
+                        setStatus(VpnStatus.Error(message))
+                        addLog("iOS VPN start failed: $message")
+                    }
+                }
+            })
+        }
+    }
+
+    /** Maps NEVPNStatus transitions (reported by the Swift bridge) onto VpnStatus. */
+    private fun handleTunnelStatus(status: String, message: String?) {
+        if (activeMode != IosConnectionMode.Tun) return
+        when (status) {
+            "connected" -> setStatus(VpnStatus.Connected)
+            "connecting" -> setStatus(VpnStatus.Connecting)
+            "reconnecting" -> setStatus(VpnStatus.Reconnecting)
+            "disconnecting" -> setStatus(VpnStatus.Stopping)
+            "disconnected" -> setStatus(
+                if (desiredConnected) VpnStatus.Reconnecting else VpnStatus.Disconnected
+            )
+            "invalid" -> setStatus(VpnStatus.Error(message ?: "VPN configuration invalid"))
         }
     }
 
@@ -153,6 +268,7 @@ class IosVpnManager(
         generation++
         runCatching { olcRtcBridge.setLogWriter(null) }
         runCatching { olcRtcBridge.stop() }
+        runCatching { tunnelBridge?.setStatusListener(null) }
         scope.cancel()
     }
 
@@ -378,6 +494,16 @@ class IosVpnManager(
         defaults.setObject(settings.password, KEY_SOCKS_PASSWORD)
     }
 
+    private fun loadConnectionMode(): IosConnectionMode {
+        if (tunnelBridge == null) return IosConnectionMode.Proxy
+        val stored = NSUserDefaults.standardUserDefaults.stringForKey(KEY_CONNECTION_MODE)
+        return IosConnectionMode.fromValue(stored)
+    }
+
+    private fun saveConnectionMode(mode: IosConnectionMode) {
+        NSUserDefaults.standardUserDefaults.setObject(mode.value, KEY_CONNECTION_MODE)
+    }
+
     private fun sanitizePort(port: Int): Int {
         return if (ApplicationSocksProxySettings.isValidPort(port)) {
             port
@@ -399,6 +525,9 @@ class IosVpnManager(
         const val KEY_SOCKS_PORT = "ios_socks_port"
         const val KEY_SOCKS_USERNAME = "ios_socks_username"
         const val KEY_SOCKS_PASSWORD = "ios_socks_password"
+        const val KEY_CONNECTION_MODE = "ios_connection_mode"
+        const val TUN_MTU = 1500
+        const val TUN_DNS_ADDRESS = "1.1.1.1"
         const val USERNAME_LENGTH = 12
         const val PASSWORD_LENGTH = 24
         const val MAX_CREDENTIAL_LENGTH = 64

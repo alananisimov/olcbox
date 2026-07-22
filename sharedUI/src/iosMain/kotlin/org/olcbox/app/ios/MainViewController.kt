@@ -22,6 +22,7 @@ import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.share.ConfigShareService
 import org.olcbox.app.data.share.SubscriptionShareItem
 import org.olcbox.app.ui.OlcboxAppContent
+import org.olcbox.app.ui.components.AppConnectionModeOption
 import org.olcbox.app.ui.components.ApplicationSettingsSheet
 import org.olcbox.app.ui.components.ApplicationUpdateOfferSheet
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
@@ -37,30 +38,34 @@ import org.olcbox.app.update.identity
 import org.olcbox.app.update.isDownloaded
 import org.olcbox.app.update.isUpdateCheckDue
 import org.olcbox.app.update.shouldShowOffer
+import org.olcbox.app.vpn.IosConnectionMode
 import org.olcbox.app.vpn.IosVpnManager
 import platform.UIKit.UIViewController
 
 class IosAppFactory {
     fun createSession(
         platformBridge: IosPlatformBridge,
-        olcRtcBridge: IosOlcRtcBridge
+        olcRtcBridge: IosOlcRtcBridge,
+        tunnelBridge: IosTunnelBridge? = null
     ): IosAppSession {
-        return IosAppSession(platformBridge, olcRtcBridge)
+        return IosAppSession(platformBridge, olcRtcBridge, tunnelBridge)
     }
 
     fun createViewController(
         platformBridge: IosPlatformBridge,
-        olcRtcBridge: IosOlcRtcBridge
+        olcRtcBridge: IosOlcRtcBridge,
+        tunnelBridge: IosTunnelBridge? = null
     ): UIViewController {
-        return createSession(platformBridge, olcRtcBridge).createViewController()
+        return createSession(platformBridge, olcRtcBridge, tunnelBridge).createViewController()
     }
 }
 
 class IosAppSession internal constructor(
     private val platformBridge: IosPlatformBridge,
-    olcRtcBridge: IosOlcRtcBridge
+    olcRtcBridge: IosOlcRtcBridge,
+    tunnelBridge: IosTunnelBridge?
 ) {
-    private val dependencies = IosAppDependencies(platformBridge, olcRtcBridge)
+    private val dependencies = IosAppDependencies(platformBridge, olcRtcBridge, tunnelBridge)
 
     fun createViewController(): UIViewController {
         return ComposeUIViewController {
@@ -75,11 +80,12 @@ class IosAppSession internal constructor(
 
 private class IosAppDependencies(
     platformBridge: IosPlatformBridge,
-    olcRtcBridge: IosOlcRtcBridge
+    olcRtcBridge: IosOlcRtcBridge,
+    tunnelBridge: IosTunnelBridge?
 ) {
     private val locationsDataSource = IosLocationsDataSourceImpl()
     val locationsRepository = LocationsRepositoryImpl(locationsDataSource)
-    val vpnManager = IosVpnManager(locationsRepository, olcRtcBridge)
+    val vpnManager = IosVpnManager(locationsRepository, olcRtcBridge, tunnelBridge)
     val updateService = AppUpdateService(
         deviceIdentityProvider = PersistentDeviceIdentityProvider(locationsDataSource)
     )
@@ -182,7 +188,32 @@ private fun IosApp(
         val logs by dependencies.homeViewModel.logs.collectAsState()
         val homeState by dependencies.homeViewModel.state.collectAsState()
         val socksProxySettings by dependencies.vpnManager.socksProxySettings.collectAsState()
-        val connectionSummary = "SOCKS5 127.0.0.1:${socksProxySettings.port}"
+        val connectionMode by dependencies.vpnManager.connectionMode.collectAsState()
+        val isTun = connectionMode == IosConnectionMode.Tun
+        val connectionSummary = if (isTun) {
+            "VPN · Full tunnel"
+        } else {
+            "SOCKS5 127.0.0.1:${socksProxySettings.port}"
+        }
+        val connectionModeValue = if (isTun) "VPN · Full tunnel" else "Proxy · Local SOCKS5"
+        val connectionModeOptions = if (dependencies.vpnManager.supportsTunMode) {
+            listOf(
+                AppConnectionModeOption(
+                    id = IosConnectionMode.Proxy.value,
+                    title = "Proxy",
+                    subtitle = "Local SOCKS5 endpoint",
+                    selected = !isTun
+                ),
+                AppConnectionModeOption(
+                    id = IosConnectionMode.Tun.value,
+                    title = "VPN",
+                    subtitle = "Full device tunnel",
+                    selected = isTun
+                )
+            )
+        } else {
+            emptyList()
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             OlcboxAppContent(
@@ -246,13 +277,29 @@ private fun IosApp(
                     subscriptions = iosSubscriptionItems(dependencies.locationViewModel.locations.toList()),
                     logs = logs,
                     connectionSummary = connectionSummary,
-                    connectionDetails = listOf(
-                        "Mode" to "Local SOCKS5 proxy",
-                        "Host" to "127.0.0.1",
-                        "Port" to socksProxySettings.port.toString()
-                    ),
+                    connectionDetails = if (isTun) {
+                        listOf(
+                            "Mode" to "Full device tunnel",
+                            "Upstream" to "olcRTC SOCKS5 (in-extension)",
+                            "DNS" to "1.1.1.1"
+                        )
+                    } else {
+                        listOf(
+                            "Mode" to "Local SOCKS5 proxy",
+                            "Host" to "127.0.0.1",
+                            "Port" to socksProxySettings.port.toString()
+                        )
+                    },
                     socksProxySettings = socksProxySettings,
                     isConnectionActive = homeState.isVpnConnected,
+                    connectionModeValue = connectionModeValue,
+                    connectionModeOptions = connectionModeOptions,
+                    onConnectionModeSelected = { id ->
+                        dependencies.vpnManager.selectConnectionMode(IosConnectionMode.fromValue(id))
+                        if (homeState.isVpnConnected) {
+                            dependencies.homeViewModel.restartVpnIfRunning()
+                        }
+                    },
                     onDismiss = { isAppSettingsOpen = false },
                     onCopyConfigClick = {
                         dependencies.homeViewModel.onCopyFullConfigClicked()
