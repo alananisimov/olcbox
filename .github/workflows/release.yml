@@ -100,7 +100,7 @@ jobs:
           architecture: x64
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: olcrtc/go.sum
@@ -235,7 +235,7 @@ jobs:
           java-version: '21'
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: olcrtc/go.sum
@@ -293,7 +293,7 @@ jobs:
           java-version: '21'
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: olcrtc/go.sum
@@ -360,7 +360,7 @@ jobs:
           java-version: '21'
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: olcrtc/go.sum
@@ -489,7 +489,7 @@ jobs:
           xcode-version: '^26.0'
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: olcrtc/go.sum
