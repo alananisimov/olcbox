@@ -85,7 +85,7 @@ data class LocationConfig(
 
         fun supportedTransportsForProvider(provider: String): List<String> {
             val providerTransports = when (normalizeProvider(provider)) {
-                PROVIDER_TELEMOST -> listOf(TRANSPORT_DATACHANNEL, TRANSPORT_VP8CHANNEL, TRANSPORT_SEICHANNEL)
+                PROVIDER_TELEMOST -> listOf(TRANSPORT_VP8CHANNEL, TRANSPORT_SEICHANNEL)
                 PROVIDER_JITSI -> listOf(TRANSPORT_DATACHANNEL, TRANSPORT_VP8CHANNEL, TRANSPORT_SEICHANNEL)
                 else -> supportedTransports
             }

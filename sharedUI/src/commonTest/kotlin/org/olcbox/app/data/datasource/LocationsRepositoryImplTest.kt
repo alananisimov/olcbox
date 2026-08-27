@@ -396,7 +396,7 @@ class LocationsRepositoryImplTest {
     }
 
     @Test
-    fun telemostAndOtherProvidersCanUseDatachannel() = runTest {
+    fun telemostLocationsForceVp8AndOtherProvidersCanUseDatachannel() = runTest {
         val source = FakeLocationsDataSource()
         val input = """
             {
@@ -426,7 +426,7 @@ class LocationsRepositoryImplTest {
 
         val imported = source.stored
         assertNotNull(imported)
-        assertEquals(LocationConfig.TRANSPORT_DATACHANNEL, imported.locations[0].location.transport)
+        assertEquals(LocationConfig.TRANSPORT_VP8CHANNEL, imported.locations[0].location.transport)
         assertEquals(LocationConfig.TRANSPORT_DATACHANNEL, imported.locations[1].location.transport)
     }
 
@@ -468,7 +468,6 @@ class LocationsRepositoryImplTest {
     fun exposesAllWorkingProviderTransportPairs() {
         assertEquals(
             listOf(
-                LocationConfig.TRANSPORT_DATACHANNEL,
                 LocationConfig.TRANSPORT_VP8CHANNEL,
                 LocationConfig.TRANSPORT_SEICHANNEL
             ),
