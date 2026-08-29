@@ -1,10 +1,10 @@
 [versions]
 
-kotlin = "2.4.10-375"
+kotlin = "2.4.20-352"
 datastorePreferences = "1.2.1"
-compose-multiplatform = "1.12.0-rc01"
+compose-multiplatform = "1.12.0"
 material3 = "1.12.0-alpha03"
-agp = "9.3.1"
+agp = "9.3.2"
 androidx-activityCompose = "1.13.0"
 androidx-core = "1.19.0"
 androidx-camera = "1.6.1"
