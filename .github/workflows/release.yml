@@ -56,7 +56,7 @@ jobs:
       - name: Checkout olcrtc once to resolve the release commit
         uses: actions/checkout@v7
         with:
-          repository: openlibrecommunity/olcrtc
+          repository: alananisimov/olcrtc
           ref: ${{ steps.version.outputs.olcrtc_ref }}
           path: olcrtc
           fetch-depth: 1
@@ -87,7 +87,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: openlibrecommunity/olcrtc
+          repository: alananisimov/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
@@ -223,7 +223,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: openlibrecommunity/olcrtc
+          repository: alananisimov/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
@@ -276,7 +276,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: openlibrecommunity/olcrtc
+          repository: alananisimov/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
@@ -348,7 +348,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: openlibrecommunity/olcrtc
+          repository: alananisimov/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
@@ -491,7 +491,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: openlibrecommunity/olcrtc
+          repository: alananisimov/olcrtc
           ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
