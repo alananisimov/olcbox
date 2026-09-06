@@ -59,6 +59,7 @@ class HomeScreenViewModel(
         }
 
         viewModelScope.launch {
+            var wasConnected = false
             vpnManager.status.collect { status ->
                 _state.update {
                     when (status) {
@@ -70,6 +71,22 @@ class HomeScreenViewModel(
                         is VpnStatus.Error -> it.copy(isVpnConnected = false, isVpnLoading = false)
                     }
                 }
+
+                // Tunnel just came up: immediately pull the freshest rooms through it,
+                // so the session begins with current rooms (and tops up if we connected
+                // on an about-to-expire one). The fetch rides the live tunnel's SOCKS.
+                val nowConnected = status is VpnStatus.Connected
+                if (nowConnected && !wasConnected) {
+                    viewModelScope.launch {
+                        runCatching {
+                            locationsRepository.refreshSubscriptions(
+                                subscriptionProxy = vpnManager.subscriptionFetchProxy()
+                            )
+                        }
+                        loadCurrentConfigNow()
+                    }
+                }
+                wasConnected = nowConnected
             }
         }
     }
@@ -147,6 +164,16 @@ class HomeScreenViewModel(
             _state.update { it.copy(isVpnLoading = true) }
             try {
                 if (_state.value.isVpnConnected || vpnManager.status.value is VpnStatus.Connected) {
+                    // Pull the freshest rooms through the still-live tunnel before we
+                    // tear it down, so the next start begins current. Bounded so Stop
+                    // never hangs if the tunnel is already dying.
+                    withTimeoutOrNull(PRE_DISCONNECT_REFRESH_TIMEOUT_MS) {
+                        runCatching {
+                            locationsRepository.refreshSubscriptions(
+                                subscriptionProxy = vpnManager.subscriptionFetchProxy()
+                            )
+                        }
+                    }
                     vpnManager.stopVpn()
                 } else {
                     val active = locationsRepository.getActiveLocation()
@@ -437,3 +464,4 @@ data class HomeScreenState(
 
 private const val MIN_SUBSCRIPTION_REFRESH_WAIT_MS = 1_000L
 private const val IDLE_SUBSCRIPTION_REFRESH_WAIT_MS = 24L * 60L * 60L * 1_000L
+private const val PRE_DISCONNECT_REFRESH_TIMEOUT_MS = 4_000L
