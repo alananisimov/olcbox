@@ -20,13 +20,17 @@ internal data class OlcRtcCommand(
     fun yaml(): String {
         val config = location.normalized()
         val provider = desktopProviderArg(config.bypassProvider)
+        // Always emit a failover `profiles:` config (even for a single room) so
+        // olcRTC runs under the supervisor and re-reads this file on every hop.
+        // That is what makes the room list DYNAMIC: rooms added later (##rooms)
+        // are picked up live, no restart. A single-room location is just a
+        // one-profile supervisor that reconnects in place instead of exiting.
+        val rooms = config.failoverRooms()
 
         return buildString {
             appendLine("mode: cnc")
             appendLine("auth:")
             appendLine("  provider: ${provider.yamlValue()}")
-            appendLine("room:")
-            appendLine("  id: ${config.id.yamlValue()}")
             appendLine("crypto:")
             appendLine("  key: ${config.key.yamlValue()}")
             appendLine("net:")
@@ -54,6 +58,18 @@ internal data class OlcRtcCommand(
                 }
             }
             dataDir?.let { appendLine("data: ${it.toString().yamlValue()}") }
+            appendLine("liveness:")
+            appendLine("  interval: 5s")
+            appendLine("  timeout: 8s")
+            appendLine("  failures: 2")
+            appendLine("profiles:")
+            rooms.forEach { room ->
+                appendLine("  - name: ${room.yamlValue()}")
+                appendLine("    room:")
+                appendLine("      id: ${room.yamlValue()}")
+            }
+            appendLine("failover:")
+            appendLine("  retry_delay: 2s")
         }
     }
 

@@ -1257,7 +1257,8 @@ class LocationsRepositoryImpl(
                     metadata?.name,
                     parsed.mimo,
                     parsed.location.name
-                )
+                ),
+                failoverRoomIds = parseFailoverRooms(fields["rooms"])
             ).normalized()
             val base = location.storageSlug().ifBlank { "location_${index + 1}" }
             val storageId = uniqueStorageId("imported_$base", usedStorageIds)
@@ -1355,6 +1356,15 @@ class LocationsRepositoryImpl(
             mimo = mimo,
             subscription = subscription
         ).normalized().takeUnless { it.isEmpty() }
+    }
+
+    // Extra failover room ids delivered via a `##rooms:` header (comma/space
+    // separated). They share the location's key/provider/transport.
+    private fun parseFailoverRooms(value: String?): List<String> {
+        if (value.isNullOrBlank()) return emptyList()
+        return value.split(',', ' ', '\t', '\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
     }
 
     private fun parseTransportToken(token: String): Pair<String, Map<String, Int>> {

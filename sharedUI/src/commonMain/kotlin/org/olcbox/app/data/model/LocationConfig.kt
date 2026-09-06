@@ -29,7 +29,12 @@ data class LocationConfig(
     @SerialName("vp8_batch")
     val vp8Batch: Int = DEFAULT_VP8_BATCH,
     @SerialName("dns_server")
-    val dnsServer: String = ""
+    val dnsServer: String = "",
+    // Extra room ids that, together with `id`, form one failover group sharing
+    // this location's key/provider/transport. When non-empty the client runs a
+    // failover config so it hops between rooms in-process (dynamic room list).
+    @SerialName("failover_rooms")
+    val failoverRoomIds: List<String> = emptyList()
 ) {
     fun normalized(): LocationConfig {
         val provider = normalizeProvider(bypassProvider)
@@ -42,9 +47,19 @@ data class LocationConfig(
             transport = normalizedTransport,
             dnsServer = dnsServer.trim().take(MAX_DNS_SERVER_LENGTH),
             vp8Fps = sanitizeVp8Fps(vp8Fps),
-            vp8Batch = sanitizeVp8Batch(vp8Batch)
+            vp8Batch = sanitizeVp8Batch(vp8Batch),
+            failoverRoomIds = failoverRoomIds
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it != id.trim() }
+                .distinct()
         )
     }
+
+    /** Ordered room list for a failover config: the primary room, then extras. */
+    fun failoverRooms(): List<String> = (listOf(id) + failoverRoomIds)
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
 
     fun isComplete(): Boolean = id.isNotBlank() && key.isNotBlank()
 
@@ -411,7 +426,11 @@ data class SubscriptionMetadata(
         const val MAX_UPDATE_INTERVAL_HOURS = 720
         const val MIN_UPDATE_INTERVAL_MS = 5L * 60L * 1_000L
         const val DEFAULT_UPDATE_INTERVAL_MS = DEFAULT_UPDATE_INTERVAL_HOURS * 60L * 60L * 1_000L
-        const val MAX_UPDATE_INTERVAL_MS = MAX_UPDATE_INTERVAL_HOURS * 60L * 60L * 1_000L
+        // olcWave seamless rotation: cap the effective auto-refresh interval at 2h
+        // (min stays 5m) so the client always polls often enough to receive the next
+        // room before the current one is torn down. Applies to both the server-sent
+        // #refresh value and any manual override (both coerced into this range).
+        const val MAX_UPDATE_INTERVAL_MS = 120L * 60L * 1_000L
         const val HOUR_MS = 60L * 60L * 1_000L
         private const val RETRY_BASE_MS = 5L * 60L * 1_000L
         private const val RETRY_MAX_MS = 6L * HOUR_MS
@@ -520,6 +539,12 @@ data class LocationEntry(
     @SerialName("subscription_url")
     val subscriptionUrl: String? = null,
     val endpoint: LocationEndpointConfig? = null,
+    // Extra rooms of this location's failover group, delivered by the
+    // subscription as `##rooms`. Without a home here the parsed list was dropped
+    // the moment an entry was saved, so the client only ever knew its primary
+    // room and a rotation had nowhere to hand it over to.
+    @SerialName("failover_rooms")
+    val failoverRooms: List<String> = emptyList(),
     @SerialName("auth_provider")
     val authProvider: String? = null,
     @SerialName("carrier")
@@ -588,7 +613,8 @@ data class LocationEntry(
                     ?: legacyVp8Batch
                     ?: legacyVp8BatchCamel
                     ?: LocationConfig.DEFAULT_VP8_BATCH,
-                dnsServer = firstNotBlank(dnsServer, legacyDnsServerCamel)
+                dnsServer = firstNotBlank(dnsServer, legacyDnsServerCamel),
+                failoverRoomIds = failoverRooms
             ).normalized()
         }
 
@@ -605,6 +631,7 @@ data class LocationEntry(
                 roomId = config.id,
                 key = config.key
             ),
+            failoverRooms = config.failoverRoomIds,
             authProvider = config.bypassProvider,
             transport = LocationTransportConfig.from(config),
             dnsServer = config.dnsServer.takeIf { it.isNotBlank() },
@@ -630,6 +657,7 @@ data class LocationEntry(
                     roomId = config.id,
                     key = config.key
                 ),
+                failoverRooms = config.failoverRoomIds,
                 authProvider = config.bypassProvider,
                 transport = LocationTransportConfig.from(config),
                 dnsServer = config.dnsServer.takeIf { it.isNotBlank() },

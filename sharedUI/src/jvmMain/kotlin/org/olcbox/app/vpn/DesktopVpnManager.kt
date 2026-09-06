@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -36,6 +37,7 @@ import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 
 class DesktopVpnManager private constructor(
@@ -73,10 +75,26 @@ class DesktopVpnManager private constructor(
     private var process: Process? = null
     private var tunProcess: Process? = null
     private var olcRtcConfigPath: Path? = null
+    private var olcRtcBinary: Path? = null
     private var activeDesktopMode: DesktopMode? = null
     private var generation = 0L
+    // Rate limit for the post-handover room refresh, so a client cycling through
+    // dead rooms cannot turn one fetch per hop into a storm.
+    @Volatile
+    private var lastSwitchRefreshAt = 0L
     private val linuxTunController = LinuxTunController(::addLog)
     private val windowsTunController = WindowsTunController(::addLog)
+
+    init {
+        // Live room-list reload: when the subscription changes while connected,
+        // rewrite the olcRTC config file in place. In failover mode olcRTC re-reads
+        // it on its next room hop, so new rooms are picked up WITHOUT a restart.
+        scope.launch {
+            locationsRepository.changes
+                .drop(1)
+                .collect { rewriteActiveConfigIfConnected() }
+        }
+    }
 
     override fun needsPermission(): Boolean = false
 
@@ -206,13 +224,21 @@ class DesktopVpnManager private constructor(
                 windowsTunController.ensureAdministratorOrRequestRestart()
             }
 
+            // Read before the TUN exists, so it is the machine's real path out.
+            val bindInterfaceIndex = if (desktopMode == DesktopMode.WindowsTun) {
+                windowsTunController.defaultRouteInterfaceIndex()
+            } else {
+                null
+            }
+
             process = startOlcRtcProcessWithFallback(
                 location = location,
                 socksSettings = socksSettings,
                 ready = ready,
                 startupFailure = startupFailure,
                 logOutput = true,
-                privileged = desktopMode == DesktopMode.LinuxTun
+                privileged = desktopMode == DesktopMode.LinuxTun,
+                bindInterfaceIndex = bindInterfaceIndex
             )
 
             val olcRtcProcess = process ?: error("olcRTC process is missing")
@@ -338,7 +364,8 @@ class DesktopVpnManager private constructor(
         ready: CompletableDeferred<Unit>,
         startupFailure: CompletableDeferred<String>,
         logOutput: Boolean,
-        privileged: Boolean
+        privileged: Boolean,
+        bindInterfaceIndex: Int?
     ): Process {
         val binaries = DesktopNativeAssets.resolveOlcRtcBinaryCandidates()
         val dnsServer = location.dnsServer.ifBlank { DesktopDnsResolver.current() }
@@ -356,6 +383,7 @@ class DesktopVpnManager private constructor(
                     startupFailure = startupFailure,
                     logOutput = logOutput,
                     privileged = privileged,
+                    bindInterfaceIndex = bindInterfaceIndex,
                     dnsServer = dnsServer
                 )
             } catch (e: Exception) {
@@ -453,6 +481,7 @@ class DesktopVpnManager private constructor(
         startupFailure: CompletableDeferred<String>,
         logOutput: Boolean,
         privileged: Boolean,
+        bindInterfaceIndex: Int?,
         dnsServer: String
     ): Process {
         val config = location.normalized()
@@ -482,6 +511,17 @@ class DesktopVpnManager private constructor(
         processBuilder.environment()["NO_PROXY"] = "127.0.0.1,localhost"
         processBuilder.environment()["no_proxy"] = "127.0.0.1,localhost"
 
+        // Windows has no VpnService.protect. Pinning olcRTC's own sockets to the
+        // physical interface is what keeps its provider calls off the TUN, so it
+        // can still reach a conference to join a new room after the tunnel it
+        // would otherwise have used is gone.
+        if (bindInterfaceIndex != null) {
+            processBuilder.environment()[OLCRTC_BIND_IFINDEX_ENV] = bindInterfaceIndex.toString()
+            addLog("olcRTC sockets pinned to interface index $bindInterfaceIndex (keeps its own traffic off the TUN)")
+        } else if (activeDesktopMode == DesktopMode.WindowsTun) {
+            addLog("Could not determine the physical interface index - olcRTC traffic may follow the TUN route")
+        }
+
         val startedProcess = try {
             processBuilder.start()
         } catch (e: Exception) {
@@ -508,6 +548,10 @@ class DesktopVpnManager private constructor(
                             ready.complete(Unit)
                         }
 
+                        if (isSessionOpenedLine(line)) {
+                            refreshRoomsAfterSwitch()
+                        }
+
                         if (isFatalOlcRtcStartupLine(line)) {
                             startupFailure.complete(line)
                         }
@@ -523,7 +567,98 @@ class DesktopVpnManager private constructor(
             logJob = readerJob
         }
 
+        olcRtcBinary = binary
+
         return startedProcess
+    }
+
+    // Rewrites the running olcRTC config file with the current active location's
+    // rooms. Only acts while connected and only for failover (multi-room)
+    // locations, since single-room olcRTC does not reload. olcRTC picks the new
+    // list up on its next hop - no process restart, live session untouched.
+    private suspend fun rewriteActiveConfigIfConnected() {
+        mutex.withLock {
+            val path = olcRtcConfigPath ?: return
+            val binary = olcRtcBinary ?: return
+
+            val currentStatus = _status.value
+            if (currentStatus !is VpnStatus.Connected &&
+                currentStatus !is VpnStatus.Reconnecting
+            ) {
+                return
+            }
+
+            val active = locationsRepository.getActiveLocation()?.location?.normalized() ?: return
+
+            val socksSettings = _socksProxySettings.value.normalized()
+            val dnsServer = active.dnsServer.ifBlank { DesktopDnsResolver.current() }
+            val command = OlcRtcCommand(
+                binary = binary,
+                location = active,
+                socksHost = socksSettings.host,
+                socksPort = socksSettings.port,
+                socksUser = socksSettings.username,
+                socksPass = socksSettings.password,
+                dnsServer = dnsServer
+            )
+
+            runCatching {
+                val tmp = Files.createTempFile(path.parent, "olcrtc-reload-", ".yaml")
+                Files.writeString(tmp, command.yaml(), StandardCharsets.UTF_8)
+                Files.move(
+                    tmp,
+                    path,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            }.onSuccess {
+                // List the ids, not just the count: a rotation only works when the
+                // standby the server advertised is actually in here, and a bare
+                // count cannot tell "the standby is missing" from "there is one".
+                val rooms = active.failoverRooms()
+                addLog(
+                    "olcRTC room list refreshed (${rooms.size} rooms: ${rooms.joinToString()}) " +
+                        "- live reload, no restart"
+                )
+            }.onFailure {
+                addLog("olcRTC live config reload failed: ${it.message}")
+            }
+        }
+    }
+
+    // olcRTC has just established a session - on a new room, if this followed a
+    // handover. Pull the room list through the tunnel NOW rather than waiting for
+    // the periodic refresh.
+    //
+    // Why it matters: the server retires the old room as soon as the client is
+    // safely on the new one, so between a handover and the next scheduled fetch
+    // the client's list holds exactly ONE live room. That window was minutes, and
+    // handovers have been observed 95 seconds apart - closer together than the
+    // refresh interval, which no amount of waiting can survive. On a whitelist a
+    // client with no live room left cannot ask for a new one: the request would
+    // have to travel through the tunnel it just lost.
+    private fun refreshRoomsAfterSwitch() {
+        // Only meaningful once the tunnel carries traffic: the fetch rides its
+        // SOCKS. The first session of a connection lands here while we are still
+        // Connecting, and is covered by the refresh on the Connected transition.
+        if (_status.value !is VpnStatus.Connected) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastSwitchRefreshAt < SWITCH_REFRESH_MIN_INTERVAL_MS) return
+        lastSwitchRefreshAt = now
+
+        scope.launch {
+            runCatching {
+                locationsRepository.refreshSubscriptions(
+                    subscriptionProxy = subscriptionFetchProxy()
+                )
+            }.onFailure {
+                // Nothing to recover here - the periodic refresh is still running,
+                // and the rotation gate holds the next handover until the client
+                // has actually received the pair.
+                addLog("Room list refresh after handover failed: ${it.message}")
+            }
+        }
     }
 
     private fun writeOlcRtcClientConfig(command: OlcRtcCommand): Path {
@@ -633,9 +768,64 @@ class DesktopVpnManager private constructor(
         addLog(logMessage)
         stopDesktopMode(finalStatus = false)
 
-        if (requestGeneration == generation) {
-            setStatus(VpnStatus.Error(errorMessage))
+        // A user start/stop bumps `generation` up front; if that already happened,
+        // this dead connection is superseded and we must not touch anything.
+        if (requestGeneration != generation) return
+
+        // Auto-reconnect. On a whitelist we cannot fetch a fresh subscription without
+        // a live tunnel, so we simply relaunch onto the STORED active location (kept
+        // current by the background refresh while a tunnel was up). No network here.
+        //
+        // This retries indefinitely, on purpose. Giving up used to leave the app in
+        // Error after about two minutes, which is shorter than a laptop waking, a
+        // Wi-Fi roam or a provider hiccup - and on a whitelist there is no other way
+        // back: reconnecting IS the only path to a working tunnel, and a working
+        // tunnel is the only path to a fresh room list. A capped backoff makes an
+        // endless retry cheap; the user can still stop it, which bumps `generation`
+        // and drops us out on the next check.
+        addLog("Connection lost ($errorMessage) - reconnecting until it comes back")
+
+        var expectedGeneration = requestGeneration
+        var attempt = 0
+        while (true) {
+            attempt++
+            setStatus(VpnStatus.Reconnecting)
+            val backoff = reconnectBackoffMs(attempt)
+            if (attempt <= RECONNECT_VERBOSE_ATTEMPTS || attempt % RECONNECT_LOG_EVERY == 0) {
+                addLog("Auto-reconnect attempt $attempt in ${backoff / 1000}s")
+            }
+
+            reconnectBackoffDelay(backoff, expectedGeneration)
+            if (generation != expectedGeneration) return  // a user action superseded us
+
+            val attemptGeneration = ++generation
+            expectedGeneration = attemptGeneration
+            startDesktopMode(attemptGeneration, isRestart = true)
+
+            if (generation != attemptGeneration) return   // user acted during the attempt
+            if (_status.value is VpnStatus.Connected) {
+                addLog("Auto-reconnect succeeded on attempt $attempt")
+                return
+            }
+            // attempt failed with no user action -> loop and retry
         }
+    }
+
+    /** Interruptible backoff: bails early the moment a user action bumps generation. */
+    private suspend fun reconnectBackoffDelay(totalMs: Long, expectedGeneration: Long) {
+        var waited = 0L
+        while (waited < totalMs) {
+            if (generation != expectedGeneration) return
+            val step = minOf(RECONNECT_BACKOFF_POLL_MS, totalMs - waited)
+            delay(step)
+            waited += step
+        }
+    }
+
+    private fun reconnectBackoffMs(attempt: Int): Long {
+        val shift = (attempt - 1).coerceIn(0, 4)
+        return (RECONNECT_BASE_BACKOFF_MS * (1L shl shift))
+            .coerceAtMost(RECONNECT_MAX_BACKOFF_MS)
     }
 
     private fun waitForProcessExit(target: Process): Int? {
@@ -755,6 +945,22 @@ class DesktopVpnManager private constructor(
         const val PROCESS_KILL_TIMEOUT_MS = 1_000L
         const val DEFAULT_LOCATION_PING_PARALLELISM = 4
 
+        // Read by olcRTC's protect package; must match protect.BindInterfaceEnv.
+        const val OLCRTC_BIND_IFINDEX_ENV = "OLCRTC_BIND_IFINDEX"
+
+        // Desktop auto-reconnect on unexpected olcRTC/TUN exit (whitelist-safe:
+        // relaunch onto the stored active location, no network fetch).
+        // Auto-reconnect never gives up (see reconnect loop), so the attempt log
+        // is throttled: every attempt at first, then occasionally, so a long
+        // outage leaves a trail without burying everything else in the log.
+        const val RECONNECT_VERBOSE_ATTEMPTS = 6
+        const val RECONNECT_LOG_EVERY = 20
+        const val RECONNECT_BASE_BACKOFF_MS = 2_000L
+        const val RECONNECT_MAX_BACKOFF_MS = 20_000L
+        const val RECONNECT_BACKOFF_POLL_MS = 250L
+
+        const val SWITCH_REFRESH_MIN_INTERVAL_MS = 15_000L
+
         internal fun isFatalOlcRtcStartupLine(line: String): Boolean {
             val text = line.lowercase()
             return "failed to connect link" in text ||
@@ -763,4 +969,17 @@ class DesktopVpnManager private constructor(
                     "transport connect" in text && "failed" in text
         }
     }
+}
+
+/**
+ * olcRTC logs this once a tunnel session is established - including the new
+ * session it opens after a room handover, which is the moment the client can
+ * safely go and fetch the room list through the tunnel again.
+ *
+ * Top-level rather than in the companion so it stays reachable from tests
+ * without widening the visibility of everything else in there.
+ */
+internal fun isSessionOpenedLine(line: String): Boolean {
+    val text = line.lowercase()
+    return "session " in text && " opened (device=" in text
 }
