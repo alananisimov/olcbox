@@ -35,6 +35,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import mobile.Mobile
+import mobile.SessionListener
 import mobile.SocketProtector
 import org.olcbox.app.data.TUN2SOCKS_CONFIG_FILE_NAME
 import org.olcbox.app.data.datasource.LocationsDataSourceImpl
@@ -42,6 +43,7 @@ import org.olcbox.app.data.datasource.LocationsRepositoryImpl
 import org.olcbox.app.data.identity.PersistentDeviceIdentityProvider
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.repository.LocationsRepository
+import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import org.olcbox.app.vpn.AndroidConnectionMode
 import org.olcbox.app.vpn.AndroidSocksProxySettings
 import org.olcbox.app.vpn.AndroidSplitTunnelMode
@@ -95,6 +97,10 @@ class OlcboxVpnService : VpnService() {
     private var watchdogTunStats: Tun2SocksStats? = null
     private var watchdogStalledSamples = 0
     private var lastWakeLockRefreshAtMs = 0L
+    @Volatile
+    private var lastRoomRefreshAtMs = 0L
+    @Volatile
+    private var roomRefreshPendingConnect = false
     @Volatile
     private var lastRtcConnectedAtMs = 0L
     @Volatile
@@ -307,6 +313,74 @@ class OlcboxVpnService : VpnService() {
                 return this@OlcboxVpnService.protect(fd.toInt())
             }
         })
+        olcRtcRuntime.setSessionListener(object : SessionListener {
+            override fun onSessionOpened(room: String, sessionID: String) {
+                onTunnelSessionOpened(room, sessionID)
+            }
+        })
+    }
+
+    // The runtime reports every session it establishes, naming the room. Two of
+    // those moments matter here:
+    //
+    // - A session while we are Connected is a handover: the server retired the
+    //   room we were in and the runtime moved to the standby. Pull the room list
+    //   through the new session at once. Where this runs, the subscription is
+    //   reachable only through the tunnel, and handovers have been observed
+    //   closer together than any periodic refresh - a client with no live room
+    //   left cannot ask for a new one.
+    // - The first session of a generation arrives before the tunnel carries
+    //   traffic (its SOCKS listener opens after it). Remember it and refresh
+    //   once the service reports Connected, so a start or a reconnect on a new
+    //   network begins with a current list even with no UI around to do it.
+    //
+    // This is the mobile counterpart of the desktop client acting on its
+    // "session opened" log line. The shared view model also refreshes on the
+    // Connected transition while it is alive; that fetch is redundant with the
+    // one here and harmless. This one is the one that survives the UI being gone.
+    private fun onTunnelSessionOpened(room: String, sessionID: String) {
+        addLog("olcRTC session $sessionID opened in $room")
+        if (OlcboxVpnState.status.value is VpnStatus.Connected) {
+            refreshRoomsThroughTunnel("handover")
+        } else {
+            roomRefreshPendingConnect = true
+        }
+    }
+
+    private fun refreshRoomsThroughTunnel(reason: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastRoomRefreshAtMs < ROOM_REFRESH_MIN_INTERVAL_MS) return
+        lastRoomRefreshAtMs = now
+        val proxy = SubscriptionFetchProxy(
+            host = socksConnectHost(),
+            port = socksListenPort,
+            username = socksUsername,
+            password = socksPassword
+        )
+        scope.launch {
+            // After a handover the new session's SOCKS listener comes up a
+            // moment after the session itself, and the fetch rides that listener.
+            val socksUp = withContext(Dispatchers.IO) { awaitLocalSocks(proxy.port) }
+            if (!socksUp) {
+                addLog("Room list refresh after $reason skipped: SOCKS not listening")
+                return@launch
+            }
+            runCatching { repository.refreshSubscriptions(subscriptionProxy = proxy) }
+                .onSuccess { addLog("Room list refreshed after $reason ($it updated)") }
+                .onFailure {
+                    // Nothing to recover here: the rotation gate holds the next
+                    // handover until the client has actually received the pair.
+                    addLog("Room list refresh after $reason failed: ${it.message}")
+                }
+        }
+    }
+
+    private suspend fun awaitLocalSocks(port: Int): Boolean {
+        repeat(ROOM_REFRESH_SOCKS_WAIT_STEPS) {
+            if (isLocalSocksPortOpen(port)) return true
+            delay(ROOM_REFRESH_SOCKS_WAIT_STEP_MS)
+        }
+        return false
     }
 
     // Live room-list reload, the mobile counterpart of the desktop client
@@ -1554,6 +1628,10 @@ class OlcboxVpnService : VpnService() {
 
     private fun setStatus(status: VpnStatus) {
         OlcboxVpnState.setStatus(status)
+        if (status is VpnStatus.Connected && roomRefreshPendingConnect) {
+            roomRefreshPendingConnect = false
+            refreshRoomsThroughTunnel("connect")
+        }
     }
 
     private fun activeModeLabel(): String {
@@ -1754,6 +1832,9 @@ class OlcboxVpnService : VpnService() {
         private const val LOCAL_SOCKS_PORT_MAX = 10858
         private const val MOBILE_READY_TIMEOUT_MS = 25_000L
         private const val MOBILE_STOP_TIMEOUT_MS = 5_000L
+        private const val ROOM_REFRESH_MIN_INTERVAL_MS = 15_000L
+        private const val ROOM_REFRESH_SOCKS_WAIT_STEPS = 50
+        private const val ROOM_REFRESH_SOCKS_WAIT_STEP_MS = 100L
         private const val PREVIOUS_STOP_WAIT_MS = 12_000L
         private const val JITSI_RESTART_SETTLE_MS = 2_000L
         private const val TUN2SOCKS_STOP_WAIT_MS = 1_000L
