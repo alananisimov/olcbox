@@ -25,6 +25,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -252,6 +253,7 @@ class OlcboxVpnService : VpnService() {
             .apply { setReferenceCounted(false) }
 
         installMobileCallbacks()
+        watchRoomListChanges()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -305,6 +307,24 @@ class OlcboxVpnService : VpnService() {
                 return this@OlcboxVpnService.protect(fd.toInt())
             }
         })
+    }
+
+    // Live room-list reload, the mobile counterpart of the desktop client
+    // rewriting its olcRTC config file: when the stored locations change while
+    // a session is running - a subscription refresh delivered a new standby -
+    // hand the runtime the current list. It re-reads that list at its next hop,
+    // so the room the server just advertised is where the client goes when the
+    // one it is in is retired. No restart; the live session is not touched.
+    private fun watchRoomListChanges() {
+        scope.launch {
+            repository.changes.drop(1).collect {
+                if (!olcRtcRuntime.isRunning) return@collect
+                val location = runCatching { repository.getActiveLocation()?.location?.normalized() }
+                    .getOrNull() ?: return@collect
+                if (!location.isComplete()) return@collect
+                applyFailoverRooms(location)
+            }
+        }
     }
 
     private fun loadStartOptions(intent: Intent): StartOptions {
@@ -646,6 +666,7 @@ class OlcboxVpnService : VpnService() {
         olcRtcRuntime.setProvider(config.bypassProvider)
         olcRtcRuntime.setTransport(config.transport)
         olcRtcRuntime.setRoom(config.id)
+        applyFailoverRooms(config)
         olcRtcRuntime.setKey(config.key)
         olcRtcRuntime.setDeviceID(deviceId)
         olcRtcRuntime.setDNS(resolveOlcRtcDnsServer(config.dnsServer))
@@ -653,6 +674,23 @@ class OlcboxVpnService : VpnService() {
         olcRtcRuntime.setSocksPort(socksPort.toLong())
         olcRtcRuntime.setSocksCredentials(socksUsername, socksPassword)
         olcRtcRuntime.setVP8Options(config.vp8Fps.toLong(), config.vp8Batch.toLong())
+    }
+
+    // Hand the runtime every room this location can be reached in, primary
+    // first. The extras arrive in the subscription as `##rooms`; the runtime
+    // moves to the next one when the room it is in is retired, and re-reads the
+    // list at that moment - so this is also what to call when the subscription
+    // refreshes mid-session, not only at start. Without it the client knows one
+    // room, and a server rotating rooms leaves it with nowhere to go.
+    private fun applyFailoverRooms(config: LocationConfig) {
+        olcRtcRuntime.clearFailoverRooms()
+        var applied = 0
+        for (room in config.failoverRoomIds) {
+            runCatching { olcRtcRuntime.addFailoverRoom(room) }
+                .onSuccess { applied++ }
+                .onFailure { addLog("Failover room $room rejected: ${it.message}") }
+        }
+        addLog("olcRTC room list: ${config.failoverRooms().joinToString()} ($applied standby)")
     }
 
     private fun startTun2socks(pfd: ParcelFileDescriptor): Boolean {
@@ -700,6 +738,8 @@ class OlcboxVpnService : VpnService() {
                 .addDnsServer(MAPDNS_ADDRESS)
                 .setBlocking(true)
 
+            applyIpv6Blackhole(builder)
+
             if (!applySplitTunneling(builder)) return null
 
             currentNetwork?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
@@ -709,6 +749,40 @@ class OlcboxVpnService : VpnService() {
             setStatus(VpnStatus.Error(e.message ?: "VPN establish failed"))
             updateNotification("VPN tunnel error")
             null
+        }
+    }
+
+    // The tunnel carries IPv4 only, and Android routes an address family to a VPN
+    // only when that family is configured on it. Leaving IPv6 out therefore does
+    // not disable it - it sends every IPv6 packet around the tunnel, straight out
+    // the physical interface. On a dual-stack mobile network that is both a leak
+    // of the subscriber's real address and a functional break: Happy Eyeballs
+    // prefers IPv6, so sites that resolve to it fail while the tunnel reports a
+    // perfectly good IPv4 exit.
+    //
+    // Pulling IPv6 into the TUN instead makes those packets ours, and the exit
+    // has nowhere to send them - so they die and applications fall back to IPv4
+    // immediately, which is what we want.
+    //
+    // Where exactly they die is worth knowing. The tun2socks config declares no
+    // `ipv6:` address (see writeTun2socksConfig), the intent being that it has no
+    // IPv6 of its own and discards them locally. If it forwards them upstream
+    // anyway, the cost stays bounded: olcRTC refuses IPv6 literals itself once
+    // the exit has reported it has no IPv6 route. Worth confirming on a
+    // dual-stack device by watching whether IPv6 targets reach the tunnel at all.
+    //
+    // Best-effort by design: a device that refuses this configuration keeps a
+    // working IPv4 tunnel instead of no tunnel at all. Nothing persists either -
+    // it lives and dies with the VPN interface.
+    private fun applyIpv6Blackhole(builder: Builder) {
+        if (!BLOCK_IPV6) return
+        runCatching {
+            builder.addAddress(TUN_IPV6_ADDRESS, IPV6_PREFIX_LENGTH)
+            builder.addRoute("::", 0)
+        }.onSuccess {
+            addLog("IPv6 leak protection enabled")
+        }.onFailure {
+            addLog("IPv6 leak protection unavailable (${it.message}) - IPv6 may bypass the tunnel")
         }
     }
 
@@ -785,6 +859,13 @@ class OlcboxVpnService : VpnService() {
         }
     }
 
+    // Note the deliberate absence of an `ipv6:` address below. The VPN interface
+    // does claim one (see applyIpv6Blackhole) so that IPv6 cannot escape around
+    // the tunnel, but this side is left without it on purpose: with no IPv6 of
+    // its own the tunnel discards those packets locally, instead of forwarding
+    // them upstream to an exit that has no IPv6 route and will only answer
+    // "unreachable" after a full round trip. Adding `ipv6:` here would quietly
+    // turn a free drop into paid traffic.
     private fun writeTun2socksConfig(): File {
         val file = File(filesDir, TUN2SOCKS_CONFIG_FILE_NAME)
 
@@ -1702,6 +1783,18 @@ class OlcboxVpnService : VpnService() {
         private const val TUN_TCP_BUFFER_SIZE = 65_536
         private const val TUN_TASK_STACK_SIZE = 86_016
         private const val IPV4_PREFIX_LENGTH = 24
+
+        // A unique-local address, so nothing routable is claimed. Matches the
+        // desktop client's blackhole address for the same reason: whoever reads
+        // one of the two logs should recognise the other.
+        private const val TUN_IPV6_ADDRESS = "fd00:88::1"
+        private const val IPV6_PREFIX_LENGTH = 64
+
+        // On by default, as on desktop. A constant rather than a setting because
+        // there is no supported configuration in which leaking IPv6 around the
+        // tunnel is what the user wanted; kept named so a future toggle has an
+        // obvious home. See applyIpv6Blackhole.
+        private const val BLOCK_IPV6 = true
         private const val DEFAULT_OLCRTC_DNS_SERVER = "1.1.1.1:53"
         private const val MAPDNS_ADDRESS = "1.1.1.1"
         private const val MAPDNS_NETWORK = "100.64.0.0"
