@@ -283,13 +283,16 @@ fun AndroidMainScreen(
     }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             viewModel.onFileSelected(
                 fileSource = it,
                 onComplete = {
                     reloadLocationsAfterImport()
+                },
+                onError = { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -358,7 +361,7 @@ fun AndroidMainScreen(
             }
         },
         onImportFileRequested = {
-            filePickerLauncher.launch("*/*")
+            filePickerLauncher.launch(arrayOf("*/*"))
         },
         onImportFromClipboardRequested = { onImported, onError ->
             viewModel.onPasteFromClipboard(
