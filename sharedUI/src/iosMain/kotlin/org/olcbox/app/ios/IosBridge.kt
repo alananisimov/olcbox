@@ -20,6 +20,7 @@ data class IosOlcRtcCheckRequest(
     val roomId: String,
     val clientId: String,
     val keyHex: String,
+    val dnsServer: String,
     val timeoutMillis: Long,
     val pingUrl: String,
     val vp8Fps: Int,

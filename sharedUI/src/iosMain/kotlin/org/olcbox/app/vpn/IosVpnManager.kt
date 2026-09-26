@@ -215,6 +215,7 @@ class IosVpnManager(
             roomId = config.id,
             clientId = locationsRepository.getDeviceIdentity(),
             keyHex = config.key,
+            dnsServer = config.dnsServer,
             timeoutMillis = CHECK_TIMEOUT_MS,
             pingUrl = HTTP_PING_URL,
             vp8Fps = config.vp8Fps,
@@ -356,7 +357,8 @@ class IosVpnManager(
             socksPort = settings.port,
             socksUser = settings.username,
             socksPass = settings.password,
-            dnsServer = config.dnsServer.ifBlank { DEFAULT_OLCRTC_DNS_SERVER },
+            // Blank means "auto": the Swift bridge resolves the carrier DNS.
+            dnsServer = config.dnsServer,
             vp8Fps = config.vp8Fps,
             vp8BatchSize = config.vp8Batch
         )
@@ -403,7 +405,6 @@ class IosVpnManager(
     }
 
     private companion object {
-        const val DEFAULT_OLCRTC_DNS_SERVER = "1.1.1.1:53"
         const val KEY_SOCKS_PORT = "ios_socks_port"
         const val KEY_SOCKS_USERNAME = "ios_socks_username"
         const val KEY_SOCKS_PASSWORD = "ios_socks_password"
